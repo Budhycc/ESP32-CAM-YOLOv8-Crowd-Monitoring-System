@@ -1,7 +1,7 @@
 #include "WiFi.h"
 #include "esp_camera.h"
 #include <WebSocketsClient.h>
-
+#include <WiFiUdp.h>
 // ==========================================
 // CONFIGURATION
 // ==========================================
@@ -10,7 +10,7 @@ const char* password = "YOUR_WIFI_PASSWORD";
 
 // WebSocket Server Configuration
 const char* esp32_id = "ESP-001";               // Ganti dengan ID unik perangkat ini (Hardware ID)
-const char* websocket_server = "192.168.1.100"; // Ganti dengan IP komputer/server Python
+String websocket_server = "";                   // Akan diisi otomatis via UDP Auto-Discovery
 const uint16_t websocket_port = 8765;           // Ganti dengan Port server Python (sesuai config.py)
 String websocket_path_str;
 
@@ -130,9 +130,32 @@ void setup() {
   // Setup Camera
   setupCamera();
 
+  // Wait for UDP Announce from Server to get IP
+  WiFiUDP udp;
+  udp.begin(9876);
+  Serial.println("Listening for Server Announce on UDP port 9876...");
+  
+  while (websocket_server == "") {
+    int packetSize = udp.parsePacket();
+    if (packetSize) {
+      char packetBuffer[255];
+      int len = udp.read(packetBuffer, 255);
+      if (len > 0) {
+        packetBuffer[len] = 0;
+      }
+      String msg = String(packetBuffer);
+      if (msg.startsWith("YOLOV8_SERVER_ANNOUNCE:")) {
+        websocket_server = udp.remoteIP().toString();
+        Serial.print("Found Server at IP: ");
+        Serial.println(websocket_server);
+      }
+    }
+    delay(100);
+  }
+
   // Setup WebSocket Client
   websocket_path_str = String("/ws/esp32/") + esp32_id;
-  webSocket.begin(websocket_server, websocket_port, websocket_path_str.c_str());
+  webSocket.begin(websocket_server.c_str(), websocket_port, websocket_path_str.c_str());
   webSocket.onEvent(webSocketEvent);
   webSocket.setReconnectInterval(5000);
 }

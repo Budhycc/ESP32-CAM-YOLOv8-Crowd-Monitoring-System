@@ -7,6 +7,8 @@ import threading
 import http.server
 import socketserver
 import os
+import socket
+import time
 import websockets
 from config import HOST, PORT, DEFAULT_CAPACITY
 from database import init_db, save_detection, get_recent_logs, get_latest_log, get_all_rooms, get_room_capacity, upsert_room, delete_room, get_room_by_esp32, rename_room
@@ -284,6 +286,24 @@ async def main():
     logger.info(f"Step 4: Starting Web Dashboard Server at http://localhost:8000...")
     http_thread = threading.Thread(target=start_http_server, daemon=True)
     http_thread.start()
+
+    # Start UDP Announcer for ESP32 Auto-Discovery
+    def udp_announcer():
+        UDP_PORT = 9876
+        sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM, socket.IPPROTO_UDP)
+        sock.setsockopt(socket.SOL_SOCKET, socket.SO_BROADCAST, 1)
+        message = f"YOLOV8_SERVER_ANNOUNCE:{PORT}".encode('utf-8')
+        logger.info(f"Step 5: Starting UDP Auto-Discovery Broadcaster on port {UDP_PORT}...")
+        while True:
+            try:
+                sock.sendto(message, ('<broadcast>', UDP_PORT))
+                time.sleep(2)
+            except Exception as e:
+                logger.error(f"UDP Announce error: {e}")
+                time.sleep(5)
+                
+    udp_thread = threading.Thread(target=udp_announcer, daemon=True)
+    udp_thread.start()
 
     async with websockets.serve(connection_router, HOST, PORT):
         logger.info(f"Server is RUNNING and listening on ws://{HOST}:{PORT}")
