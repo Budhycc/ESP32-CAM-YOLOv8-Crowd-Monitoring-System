@@ -26,7 +26,7 @@ Jika setelah menjalankan perintah di atas YOLOv8 masih berjalan di CPU (tidak me
 ---------------------------------------------------------
 BAGIAN B: PENGGUNA LAPTOP/PC INTEL (Tanpa VGA NVIDIA)
 ---------------------------------------------------------
-Jika Anda menggunakan laptop/PC bertenaga Intel (Gen 6 ke atas) dan hanya memiliki Intel HD/UHD/Iris Graphics, ikuti langkah ini:
+Jika Anda menggunakan laptop/PC bertenaga Intel (Gen 9 ke atas) dan hanya memiliki Intel HD/UHD/Iris Graphics, ikuti langkah ini:
 
 1. Install library OpenVINO:
    pip install openvino
