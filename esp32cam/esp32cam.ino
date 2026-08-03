@@ -1,12 +1,11 @@
 #include "WiFi.h"
+#include <WiFiManager.h>
 #include "esp_camera.h"
 #include <WebSocketsClient.h>
 #include <WiFiUdp.h>
 // ==========================================
 // CONFIGURATION
 // ==========================================
-const char* ssid = "YOUR_WIFI_SSID";
-const char* password = "YOUR_WIFI_PASSWORD";
 
 // WebSocket Server Configuration
 String esp32_id = "";                           // Akan diisi otomatis dengan MAC Address di setup()
@@ -116,14 +115,14 @@ void setup() {
   pinMode(pirPin, INPUT);
   Serial.println("PIR Sensor Initialized.");
 
-  // Setup WiFi
-  WiFi.begin(ssid, password);
-  Serial.print("Connecting to WiFi");
-  while (WiFi.status() != WL_CONNECTED) {
-    delay(500);
-    Serial.print(".");
+  // Setup WiFiManager
+  WiFiManager wm;
+  Serial.println("Connecting to WiFi or starting AP: ESP32-CAM-SETUP");
+  bool res = wm.autoConnect("ESP32-CAM-SETUP");
+  if (!res) {
+    Serial.println("Failed to connect or timeout");
+    ESP.restart();
   }
-  Serial.println("");
   Serial.print("WiFi connected, IP address: ");
   Serial.println(WiFi.localIP());
 
@@ -172,6 +171,20 @@ void setup() {
 void loop() {
   webSocket.loop();
   
+  // Check for Serial commands to reset WiFi
+  if (Serial.available() > 0) {
+    String command = Serial.readStringUntil('\n');
+    command.trim();
+    if (command == "RESET_WIFI") {
+      Serial.println("Resetting WiFi configuration...");
+      WiFiManager wm;
+      wm.resetSettings();
+      Serial.println("WiFi configuration reset. Restarting...");
+      delay(1000);
+      ESP.restart();
+    }
+  }
+
   // Baca status sensor PIR
   int pirState = digitalRead(pirPin);
   
