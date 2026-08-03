@@ -31,12 +31,19 @@ def init_db():
                 capacity INTEGER NOT NULL
             )
         ''')
+        
+        # Add esp32_id column if it doesn't exist
+        try:
+            cursor.execute('ALTER TABLE rooms ADD COLUMN esp32_id TEXT')
+        except sqlite3.OperationalError:
+            pass # Column already exists
+
         # Seed defaults if empty
         cursor.execute('SELECT COUNT(*) FROM rooms')
         if cursor.fetchone()[0] == 0:
             cursor.executemany('''
-                INSERT INTO rooms (room_id, capacity) VALUES (?, ?)
-            ''', [("Ruang_A", 30), ("Ruang_B", 20)])
+                INSERT INTO rooms (room_id, capacity, esp32_id) VALUES (?, ?, ?)
+            ''', [("Ruang_A", 30, "ESP-001"), ("Ruang_B", 20, "ESP-002")])
         conn.commit()
     logger.info(f"Database initialized at: {DB_PATH}")
 
@@ -85,7 +92,7 @@ def get_all_rooms():
     """Retrieves all room configurations."""
     with get_connection() as conn:
         cursor = conn.cursor()
-        cursor.execute('SELECT room_id, capacity FROM rooms ORDER BY room_id')
+        cursor.execute('SELECT room_id, capacity, esp32_id FROM rooms ORDER BY room_id')
         rows = cursor.fetchall()
         return [dict(row) for row in rows]
 
@@ -97,15 +104,24 @@ def get_room_capacity(room_id: str, default: int = 30):
         row = cursor.fetchone()
         return row['capacity'] if row else default
 
-def upsert_room(room_id: str, capacity: int):
+def get_room_by_esp32(esp32_id: str):
+    """Gets room config by ESP32 ID."""
+    with get_connection() as conn:
+        cursor = conn.cursor()
+        cursor.execute('SELECT room_id, capacity FROM rooms WHERE esp32_id = ?', (esp32_id,))
+        row = cursor.fetchone()
+        return dict(row) if row else None
+
+def upsert_room(room_id: str, capacity: int, esp32_id: str = None):
     """Adds or updates a room configuration."""
+    if esp32_id == "": esp32_id = None
     with get_connection() as conn:
         cursor = conn.cursor()
         cursor.execute('''
-            INSERT INTO rooms (room_id, capacity)
-            VALUES (?, ?)
-            ON CONFLICT(room_id) DO UPDATE SET capacity=excluded.capacity
-        ''', (room_id, capacity))
+            INSERT INTO rooms (room_id, capacity, esp32_id)
+            VALUES (?, ?, ?)
+            ON CONFLICT(room_id) DO UPDATE SET capacity=excluded.capacity, esp32_id=excluded.esp32_id
+        ''', (room_id, capacity, esp32_id))
         conn.commit()
 
 def delete_room(room_id: str):

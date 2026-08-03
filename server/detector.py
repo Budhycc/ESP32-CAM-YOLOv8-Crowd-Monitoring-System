@@ -11,10 +11,13 @@ class ObjectDetector:
         """Initializes and loads the YOLOv8 model ONCE at startup."""
         logger.info(f"Loading YOLOv8 model from '{model_path}'...")
         self.model = YOLO(model_path)
-        try:
-            self.device = str(self.model.device).upper()
-        except Exception:
-            self.device = "CPU (Fallback)"
+        import torch
+        if torch.cuda.is_available():
+            self.device = "CUDA"
+            self.inference_device = "0"
+        else:
+            self.device = "CPU"
+            self.inference_device = "cpu"
         logger.info(f"YOLOv8 model loaded successfully on {self.device}.")
 
     def process_frame(self, image_bytes: bytes, draw_overlay: bool = True, crowd_status: str = "Sepi"):
@@ -37,7 +40,7 @@ class ObjectDetector:
             return 0, 0.0, [], None
 
         # 2. Run inference with YOLOv8 model
-        results = self.model(frame, conf=CONFIDENCE_THRESHOLD, verbose=False)[0]
+        results = self.model(frame, conf=CONFIDENCE_THRESHOLD, device=self.inference_device, verbose=False)[0]
 
         detected_persons = []
         confidences = []

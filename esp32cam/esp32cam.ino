@@ -9,9 +9,10 @@ const char* ssid = "YOUR_WIFI_SSID";
 const char* password = "YOUR_WIFI_PASSWORD";
 
 // WebSocket Server Configuration
+const char* esp32_id = "ESP-001";               // Ganti dengan ID unik perangkat ini (Hardware ID)
 const char* websocket_server = "192.168.1.100"; // Ganti dengan IP komputer/server Python
 const uint16_t websocket_port = 8765;           // Ganti dengan Port server Python (sesuai config.py)
-const char* websocket_path = "/ws/esp32";
+String websocket_path_str;
 
 // PIR Sensor Configuration
 const int pirPin = 13; // Pin yang terhubung ke sensor PIR (sesuaikan jika berbeda)
@@ -130,7 +131,8 @@ void setup() {
   setupCamera();
 
   // Setup WebSocket Client
-  webSocket.begin(websocket_server, websocket_port, websocket_path);
+  websocket_path_str = String("/ws/esp32/") + esp32_id;
+  webSocket.begin(websocket_server, websocket_port, websocket_path_str.c_str());
   webSocket.onEvent(webSocketEvent);
   webSocket.setReconnectInterval(5000);
 }

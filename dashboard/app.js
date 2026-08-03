@@ -7,6 +7,8 @@ let reconnectInterval = 3000;
 
 // Store state per camera
 const cameraState = {};
+let currentRooms = [];
+let activeEsps = [];
 
 // Global DOM
 const els = {
@@ -21,7 +23,9 @@ const els = {
     btnSaveRoom: document.getElementById('btn-save-room'),
     inputRoomId: document.getElementById('input-room-id'),
     inputCapacity: document.getElementById('input-capacity'),
-    settingsRoomList: document.getElementById('settings-room-list')
+    inputEsp32Id: document.getElementById('input-esp32-id'),
+    settingsRoomList: document.getElementById('settings-room-list'),
+    activeEspsList: document.getElementById('active-esps-list')
 };
 
 // ==========================================
@@ -44,14 +48,17 @@ function setupModalEvents() {
     els.btnSaveRoom.addEventListener('click', () => {
         const roomId = els.inputRoomId.value.trim();
         const capacity = parseInt(els.inputCapacity.value);
+        const esp32Id = els.inputEsp32Id.value.trim();
         if (roomId && !isNaN(capacity)) {
             ws.send(JSON.stringify({
                 action: 'add_room',
                 room_id: roomId,
-                capacity: capacity
+                capacity: capacity,
+                esp32_id: esp32Id
             }));
             els.inputRoomId.value = '';
             els.inputCapacity.value = '';
+            els.inputEsp32Id.value = '';
         }
     });
 }
@@ -97,16 +104,46 @@ function handleIncomingData(data) {
     if (data.type === 'init_state') {
         updateStaticInfo(data);
         if (data.rooms) {
-            renderRoomList(data.rooms);
+            currentRooms = data.rooms;
+            renderRoomList(currentRooms);
             data.rooms.forEach(room => {
                 ensureCameraCard(room.room_id, { capacity: room.capacity });
             });
         }
+        if (data.active_esps) {
+            activeEsps = data.active_esps;
+        }
+        renderActiveEsps();
         if (data.history) renderHistory(data.history);
     } 
     else if (data.type === 'room_config_update') {
         if (data.rooms) {
-            renderRoomList(data.rooms);
+            currentRooms = data.rooms;
+            renderRoomList(currentRooms);
+            renderActiveEsps();
+            
+            const newRoomIds = new Set(data.rooms.map(r => r.room_id));
+            const mappedEsps = new Set(data.rooms.map(r => r.esp32_id).filter(id => id));
+            
+            // Remove deleted rooms from UI and assigned ESPs
+            for (const camId in cameraState) {
+                let shouldRemove = false;
+                if (camId.startsWith("Unassigned (")) {
+                    const espId = camId.slice(12, -1);
+                    if (mappedEsps.has(espId)) {
+                        shouldRemove = true;
+                    }
+                } else if (!newRoomIds.has(camId)) {
+                    shouldRemove = true;
+                }
+
+                if (shouldRemove) {
+                    const card = document.getElementById(`card-${camId}`);
+                    if (card) card.remove();
+                    delete cameraState[camId];
+                }
+            }
+
             // Update capacity for existing cards or create new ones
             data.rooms.forEach(room => {
                 if (cameraState[room.room_id]) {
@@ -116,6 +153,12 @@ function handleIncomingData(data) {
                     ensureCameraCard(room.room_id, { capacity: room.capacity });
                 }
             });
+        }
+    }
+    else if (data.type === 'active_esps_update') {
+        if (data.active_esps) {
+            activeEsps = data.active_esps;
+            renderActiveEsps();
         }
     }
     else if (data.type === 'detection_update') {
@@ -129,12 +172,39 @@ function handleIncomingData(data) {
 function renderRoomList(rooms) {
     els.settingsRoomList.innerHTML = '';
     rooms.forEach(room => {
+        const espText = room.esp32_id ? `<br><small style="color:var(--text-muted)">Mapped to: ${room.esp32_id}</small>` : '';
         const li = document.createElement('li');
         li.innerHTML = `
-            <span><strong>${room.room_id}</strong> (Cap: ${room.capacity})</span>
+            <span><strong>${room.room_id}</strong> (Cap: ${room.capacity})${espText}</span>
             <button class="btn-danger" onclick="deleteRoom('${room.room_id}')">Delete</button>
         `;
         els.settingsRoomList.appendChild(li);
+    });
+}
+
+function renderActiveEsps() {
+    if (!els.activeEspsList) return;
+    els.activeEspsList.innerHTML = '';
+    
+    const mappedEsps = new Set(currentRooms.map(r => r.esp32_id).filter(id => id));
+    const unassigned = activeEsps.filter(id => id !== "Unknown" && !mappedEsps.has(id));
+
+    if (unassigned.length === 0) {
+        els.activeEspsList.innerHTML = '<li style="color:var(--text-muted)">No unassigned ESP32s connected.</li>';
+        return;
+    }
+
+    unassigned.forEach(id => {
+        const li = document.createElement('li');
+        li.style.cursor = 'pointer';
+        li.innerHTML = `
+            <span><strong>${id}</strong> <small style="color:var(--accent-color)">(Click to assign)</small></span>
+        `;
+        li.addEventListener('click', () => {
+            els.inputEsp32Id.value = id;
+            els.inputRoomId.focus();
+        });
+        els.activeEspsList.appendChild(li);
     });
 }
 
@@ -152,13 +222,15 @@ function updateStaticInfo(data) {
         if (els.hwBadge) {
             els.hwBadge.textContent = 'YOLOv8 ' + data.device;
             if (data.device.includes('CUDA') || data.device.includes('GPU')) {
-                els.hwBadge.style.background = 'rgba(16, 185, 129, 0.2)';
-                els.hwBadge.style.color = '#10b981';
-                els.hwBadge.style.borderColor = 'rgba(16, 185, 129, 0.4)';
+                els.hwBadge.style.background = 'rgba(16, 185, 129, 0.4)';
+                els.hwBadge.style.color = '#ffffff'; // Pure white text
+                els.hwBadge.style.borderColor = 'rgba(16, 185, 129, 0.8)';
+                els.hwBadge.style.textShadow = 'none';
             } else {
-                els.hwBadge.style.background = 'rgba(99, 102, 241, 0.2)';
-                els.hwBadge.style.color = '#818cf8';
-                els.hwBadge.style.borderColor = 'rgba(99, 102, 241, 0.4)';
+                els.hwBadge.style.background = 'rgba(239, 68, 68, 0.4)'; // Slightly darker red background
+                els.hwBadge.style.color = '#ffffff'; // Pure white text
+                els.hwBadge.style.borderColor = 'rgba(239, 68, 68, 0.8)';
+                els.hwBadge.style.textShadow = 'none';
             }
         }
     }
@@ -180,7 +252,7 @@ function ensureCameraCard(camId, data) {
 
     // Create DOM element
     const cardHtml = `
-        <div class="camera-card glass-panel" id="card-${camId}">
+        <div class="camera-card glass-panel fade-in" id="card-${camId}">
             <div class="panel-header">
                 <h2><i class='bx bx-broadcast'></i> Live Feed</h2>
                 <span class="badge" id="camera-id-${camId}">${camId}</span>

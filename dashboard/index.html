@@ -15,7 +15,7 @@
     <div class="bg-shape bg-shape-1"></div>
     <div class="bg-shape bg-shape-2"></div>
 
-    <div class="container">
+    <div class="container fade-in">
         <!-- Header -->
         <header>
             <div class="logo">
@@ -42,7 +42,7 @@
             </section>
 
             <!-- Sidebar -->
-            <aside class="sidebar">
+            <aside class="sidebar fade-in" style="animation-delay: 0.2s;">
                 <!-- History Section -->
                 <section class="glass-panel history-section">
                     <div class="panel-header">
@@ -69,8 +69,15 @@
                     <div class="form-group">
                         <input type="text" id="input-room-id" placeholder="Room Name (e.g. Kantin)">
                         <input type="number" id="input-capacity" placeholder="Capacity (e.g. 50)">
+                        <input type="text" id="input-esp32-id" placeholder="ESP32 ID (Optional)">
                         <button id="btn-save-room" class="btn-primary">Save</button>
                     </div>
+                </div>
+                <div class="room-list-container" style="margin-bottom: 20px;">
+                    <h3>Live Unassigned ESP32s</h3>
+                    <ul id="active-esps-list" class="room-list">
+                        <li style="color:var(--text-muted)">No unassigned ESP32s connected.</li>
+                    </ul>
                 </div>
                 <div class="room-list-container">
                     <h3>Configured Rooms</h3>
