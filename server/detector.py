@@ -1,0 +1,85 @@
+import cv2
+import numpy as np
+import logging
+from ultralytics import YOLO
+from config import YOLO_MODEL_PATH, CONFIDENCE_THRESHOLD, TARGET_CLASS_ID
+
+logger = logging.getLogger("YOLOv8Detector")
+
+class ObjectDetector:
+    def __init__(self, model_path: str = YOLO_MODEL_PATH):
+        """Initializes and loads the YOLOv8 model ONCE at startup."""
+        logger.info(f"Loading YOLOv8 model from '{model_path}'...")
+        self.model = YOLO(model_path)
+        logger.info("YOLOv8 model loaded successfully.")
+
+    def process_frame(self, image_bytes: bytes, draw_overlay: bool = True, crowd_status: str = "Sepi"):
+        """
+        Decodes JPEG bytes, runs YOLOv8 inference, filters 'person' class,
+        and annotates the image.
+        
+        Returns:
+        - person_count (int)
+        - avg_confidence (float)
+        - boxes (list of dicts with bbox coords)
+        - annotated_frame_bytes (bytes JPEG)
+        """
+        # 1. Decode JPEG image bytes into OpenCV matrix (BGR format)
+        nparr = np.frombuffer(image_bytes, np.uint8)
+        frame = cv2.imdecode(nparr, cv2.IMREAD_COLOR)
+
+        if frame is None:
+            logger.error("Failed to decode image bytes into OpenCV frame.")
+            return 0, 0.0, [], None
+
+        # 2. Run inference with YOLOv8 model
+        results = self.model(frame, conf=CONFIDENCE_THRESHOLD, verbose=False)[0]
+
+        detected_persons = []
+        confidences = []
+
+        # 3. Extract bounding boxes and filter for target class (person: ID 0)
+        for box in results.boxes:
+            cls_id = int(box.cls[0].item())
+            conf = float(box.conf[0].item())
+
+            if cls_id == TARGET_CLASS_ID:
+                x1, y1, x2, y2 = map(int, box.xyxy[0].tolist())
+                detected_persons.append({
+                    "bbox": [x1, y1, x2, y2],
+                    "confidence": round(conf, 2)
+                })
+                confidences.append(conf)
+
+                if draw_overlay:
+                    # Draw bounding box for person
+                    cv2.rectangle(frame, (x1, y1), (x2, y2), (0, 255, 0), 2)
+                    label = f"Person {conf:.2f}"
+                    cv2.putText(frame, label, (x1, max(y1 - 10, 15)),
+                                cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 255, 0), 2)
+
+        person_count = len(detected_persons)
+        avg_confidence = float(np.mean(confidences)) if confidences else 0.0
+
+        # 4. Draw Header Overlay (Count & Crowd Status) if requested
+        if draw_overlay:
+            # Header background bar
+            h, w, _ = frame.shape
+            cv2.rectangle(frame, (0, 0), (w, 40), (20, 20, 20), -1)
+            
+            # Color code status
+            status_colors = {
+                "Sepi": (0, 255, 0),     # Green
+                "Sedang": (0, 215, 255),  # Yellow/Orange
+                "Ramai": (0, 0, 255)     # Red
+            }
+            badge_color = status_colors.get(crowd_status, (255, 255, 255))
+
+            text = f"Terdeteksi: {person_count} Orang | Status: {crowd_status}"
+            cv2.putText(frame, text, (15, 26), cv2.FONT_HERSHEY_SIMPLEX, 0.7, badge_color, 2)
+
+        # 5. Encode annotated image back to JPEG bytes
+        success, encoded_jpeg = cv2.imencode('.jpg', frame, [cv2.IMWRITE_JPEG_QUALITY, 80])
+        annotated_bytes = encoded_jpeg.tobytes() if success else None
+
+        return person_count, avg_confidence, detected_persons, annotated_bytes
