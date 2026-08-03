@@ -1,32 +1,40 @@
-TUTORIAL: MENGAKTIFKAN GPU NVIDIA UNTUK YOLOv8 DI WINDOWS
+TUTORIAL: OPTIMASI HARDWARE UNTUK YOLOv8 (NVIDIA & INTEL)
 =========================================================
 
-Jika Anda memiliki GPU NVIDIA (seperti GTX 1650, RTX series, dll) di komputer Windows Anda, sangat disarankan untuk menggunakan GPU tersebut agar pemrosesan YOLOv8 (AI Object Detection) berjalan jauh lebih cepat dibandingkan dengan menggunakan CPU.
+Sistem pendeteksi keramaian ini telah dilengkapi dengan fitur "Auto-Detection Hardware".
+Program akan otomatis memilih hardware tercepat yang Anda miliki dalam urutan prioritas berikut:
 
-SYARAT UTAMA:
-Pastikan driver NVIDIA (Game Ready Driver atau Studio Driver) sudah ter-install di komputer Anda (Biasanya sudah otomatis jika Anda bermain game). Anda tidak perlu menginstall "CUDA Toolkit" yang sangat besar dari website NVIDIA.
+1. NVIDIA GPU (CUDA) - Sangat Cepat
+2. Intel HD/UHD iGPU (OpenVINO) - Cepat
+3. Intel CPU (OpenVINO) - Lumayan Cepat
+4. CPU Standar - Lambat
 
-LANGKAH-LANGKAH:
-
-1. BUKA TERMINAL (CMD / POWERSHELL / TERMINAL VSCODE)
-   Arahkan terminal Anda ke dalam folder "server" pada proyek ini. 
-   (Jika Anda menggunakan Virtual Environment / venv, pastikan venv tersebut sudah diaktifkan).
-
-2. HAPUS VERSI CPU (JIKA SUDAH TERLANJUR INSTALL)
-   Agar tidak terjadi bentrokan antara PyTorch versi CPU dan GPU, jalankan perintah ini untuk menghapus instalasi library yang lama:
-   
+---------------------------------------------------------
+BAGIAN A: PENGGUNA GPU NVIDIA (GTX, RTX, MX, dll)
+---------------------------------------------------------
+1. Hapus versi PyTorch lama (agar tidak bentrok):
    pip uninstall torch torchvision torchaudio ultralytics -y
 
-3. INSTALL PYTORCH GPU & DEPENDENSI LAINNYA
-   Jalankan file "requirements-gpu.txt" yang sudah disiapkan di dalam folder server. Perintah ini akan otomatis mengunduh PyTorch yang di-bundle dengan CUDA versi 12.1 dan library pendukung lainnya:
-
+2. Buka terminal di dalam folder "server" dan install PyTorch CUDA 12.1:
    pip install -r requirements-gpu.txt
 
-4. SELESAI! JALANKAN SERVER
-   Sekarang Anda bisa langsung menjalankan server Python seperti biasa:
-   
-   python main.py
-   (atau python simulator.py)
+---------------------------------------------------------
+BAGIAN B: PENGGUNA LAPTOP/PC INTEL (Tanpa VGA NVIDIA)
+---------------------------------------------------------
+Jika Anda menggunakan laptop/PC bertenaga Intel (Gen 6 ke atas) dan hanya memiliki Intel HD/UHD/Iris Graphics, ikuti langkah ini:
 
-CATATAN:
-Library Ultralytics (YOLOv8) dirancang sangat pintar. Saat program dijalankan, YOLO akan otomatis mengecek keberadaan PyTorch versi CUDA. Jika ditemukan, YOLO akan memindahkan beban kerjanya ke kartu grafis (GPU) Anda secara otomatis tanpa perlu mengubah baris kode program sedikitpun!
+1. Install library OpenVINO:
+   pip install openvino
+
+2. Jalankan server seperti biasa (python main.py). 
+   (Catatan: Saat pertama kali dijalankan, program akan memakan waktu sekitar 1 menit untuk mengkonversi model YOLO menjadi format khusus Intel (OpenVINO). Proses ini normal dan hanya terjadi SATU KALI saja).
+
+---------------------------------------------------------
+CARA MENGETES HARDWARE (TESTER)
+---------------------------------------------------------
+Anda bisa menjalankan file "test_hardware.py" di dalam folder server:
+   
+   cd server
+   python test_hardware.py
+
+Output akan memberitahu Anda secara pasti hardware apa yang sedang aktif dan berhasil dideteksi oleh sistem!

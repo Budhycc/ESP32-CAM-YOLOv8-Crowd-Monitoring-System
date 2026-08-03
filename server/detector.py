@@ -10,14 +10,38 @@ class ObjectDetector:
     def __init__(self, model_path: str = YOLO_MODEL_PATH):
         """Initializes and loads the YOLOv8 model ONCE at startup."""
         logger.info(f"Loading YOLOv8 model from '{model_path}'...")
-        self.model = YOLO(model_path)
         import torch
+        import os
+        
         if torch.cuda.is_available():
+            self.model = YOLO(model_path)
             self.device = "CUDA"
             self.inference_device = "0"
         else:
-            self.device = "CPU"
-            self.inference_device = "cpu"
+            try:
+                import openvino as ov
+                ov_model_path = model_path.replace('.pt', '_openvino_model')
+                
+                if not os.path.exists(ov_model_path):
+                    logger.info(f"Exporting {model_path} to OpenVINO format (may take a minute)...")
+                    temp_model = YOLO(model_path)
+                    temp_model.export(format='openvino')
+                
+                self.model = YOLO(ov_model_path)
+                core = ov.Core()
+                if "GPU" in core.available_devices:
+                    self.device = "OpenVINO (Intel iGPU)"
+                    self.inference_device = "GPU"
+                else:
+                    self.device = "OpenVINO (Intel CPU)"
+                    self.inference_device = "CPU"
+                    
+            except ImportError:
+                self.model = YOLO(model_path)
+                self.device = "CPU"
+                self.inference_device = "cpu"
+                logger.warning("OpenVINO not installed. Using standard CPU fallback.")
+
         logger.info(f"YOLOv8 model loaded successfully on {self.device}.")
 
     def process_frame(self, image_bytes: bytes, draw_overlay: bool = True, crowd_status: str = "Sepi"):
