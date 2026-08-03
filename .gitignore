@@ -1,0 +1,27 @@
+# Python / Virtual Environment
+__pycache__/
+*.py[cod]
+*$py.class
+.venv/
+venv/
+env/
+
+# Database
+*.db
+*.sqlite3
+detections.db
+
+# Ultralytics / YOLOv8
+*.pt
+yolov8n.pt
+runs/
+
+# Arduino / ESP32-CAM build
+build/
+*.hex
+*.elf
+*.bin
+
+# OS generated files
+.DS_Store
+Thumbs.db

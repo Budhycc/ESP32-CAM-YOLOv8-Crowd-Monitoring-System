@@ -1,0 +1,6 @@
+Created env:
+python3 -m venv .venv
+
+
+Activated env:
+source .venv/bin/activate
