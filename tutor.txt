@@ -18,6 +18,11 @@ BAGIAN A: PENGGUNA GPU NVIDIA (GTX, RTX, MX, dll)
 2. Buka terminal di dalam folder "server" dan install PyTorch CUDA 12.1:
    pip install -r requirements-gpu.txt
 
+[KHUSUS PENGGUNA WINDOWS]
+Jika setelah menjalankan perintah di atas YOLOv8 masih berjalan di CPU (tidak mendeteksi CUDA), hapus PyTorch lama dan install ulang secara paksa menggunakan perintah ini di Command Prompt / PowerShell:
+   pip uninstall torch torchvision torchaudio -y
+   pip install torch torchvision torchaudio --index-url https://download.pytorch.org/whl/cu121
+
 ---------------------------------------------------------
 BAGIAN B: PENGGUNA LAPTOP/PC INTEL (Tanpa VGA NVIDIA)
 ---------------------------------------------------------
@@ -32,23 +37,20 @@ Jika Anda menggunakan laptop/PC bertenaga Intel (Gen 6 ke atas) dan hanya memili
 ---------------------------------------------------------
 BAGIAN C: MENGAKTIFKAN INTEL iGPU DI LINUX (OPSIONAL)
 ---------------------------------------------------------
-Jika Anda menggunakan OS Linux (seperti Ubuntu, Fedora, Arch) dan ingin OpenVINO berjalan maksimal menggunakan GPU Bawaan Intel (iGPU), Anda wajib meng-install driver "Intel Compute Runtime" (OpenCL). 
+Jika Anda menggunakan OS Linux (seperti Ubuntu, Fedora, Arch) dan ingin OpenVINO berjalan maksimal menggunakan GPU Bawaan Intel (iGPU), ada DUA LANGKAH WAJIB yang harus dilakukan. Jika tidak dilakukan, OpenVINO hanya akan membaca Intel CPU Anda.
 
-Jika tidak di-install, OpenVINO hanya bisa menggunakan Intel CPU Anda secara default.
+LANGKAH 1: INSTALL DRIVER KOMPUTASI (OPENCL)
+Jalankan salah satu perintah berikut di Terminal sistem Anda sesuai distro:
+- Ubuntu/Debian/Mint: sudo apt-get install intel-opencl-icd
+- Fedora/RHEL:        sudo dnf install intel-compute-runtime
+- Arch/Manjaro:       sudo pacman -S intel-compute-runtime
 
-Berikut cara install driver-nya berdasarkan Distro Linux Anda (Jalankan di Terminal sistem biasa):
+LANGKAH 2: MEMBERIKAN HAK AKSES (GROUP PERMISSION)
+Di Linux, user biasa dikunci dari akses GPU secara langsung. Anda harus memasukkan user Anda ke grup "video" dan "render":
+   
+   sudo usermod -aG video,render $USER
 
-1. Ubuntu / Debian / Linux Mint:
-   sudo apt-get update
-   sudo apt-get install intel-opencl-icd
-
-2. Fedora / RHEL:
-   sudo dnf install intel-compute-runtime
-
-3. Arch Linux / Manjaro:
-   sudo pacman -S intel-compute-runtime
-
-Setelah selesai di-install, jalankan tester hardware untuk mengecek keberhasilannya.
+SANGAT PENTING: Setelah menjalankan perintah di atas, Anda WAJIB me-restart (reboot) komputer/laptop Anda agar perizinannya aktif!
 
 ---------------------------------------------------------
 CARA MENGETES HARDWARE (TESTER)
