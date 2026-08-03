@@ -65,18 +65,21 @@
             </div>
             <div class="modal-body">
                 <div class="add-room-form">
-                    <h3>Add / Edit Room</h3>
+                    <h3 id="form-title">Add Room</h3>
                     <div class="form-group">
                         <input type="text" id="input-room-id" placeholder="Room Name (e.g. Kantin)">
                         <input type="number" id="input-capacity" placeholder="Capacity (e.g. 50)">
                         <input type="text" id="input-esp32-id" placeholder="ESP32 ID (Optional)">
-                        <button id="btn-save-room" class="btn-primary">Save</button>
+                        <div style="display: flex; gap: 10px; width: 100%;">
+                            <button id="btn-save-room" class="btn-primary" style="flex: 1;">Save</button>
+                            <button id="btn-cancel-edit" class="btn-secondary hidden" style="flex: 1;">Cancel</button>
+                        </div>
                     </div>
                 </div>
                 <div class="room-list-container" style="margin-bottom: 20px;">
-                    <h3>Live Unassigned ESP32s</h3>
+                    <h3>Live Connected ESP32s</h3>
                     <ul id="active-esps-list" class="room-list">
-                        <li style="color:var(--text-muted)">No unassigned ESP32s connected.</li>
+                        <li style="color:var(--text-muted)">No ESP32s connected.</li>
                     </ul>
                 </div>
                 <div class="room-list-container">

@@ -117,6 +117,11 @@ def upsert_room(room_id: str, capacity: int, esp32_id: str = None):
     if esp32_id == "": esp32_id = None
     with get_connection() as conn:
         cursor = conn.cursor()
+        
+        # Ensure 1-to-1 mapping: detach this esp32_id from any other room
+        if esp32_id is not None:
+            cursor.execute('UPDATE rooms SET esp32_id = NULL WHERE esp32_id = ? AND room_id != ?', (esp32_id, room_id))
+            
         cursor.execute('''
             INSERT INTO rooms (room_id, capacity, esp32_id)
             VALUES (?, ?, ?)
@@ -129,4 +134,14 @@ def delete_room(room_id: str):
     with get_connection() as conn:
         cursor = conn.cursor()
         cursor.execute('DELETE FROM rooms WHERE room_id = ?', (room_id,))
+        conn.commit()
+
+def rename_room(old_room_id: str, new_room_id: str):
+    """Renames a room and updates all related detection logs."""
+    with get_connection() as conn:
+        cursor = conn.cursor()
+        # Update the rooms table
+        cursor.execute('UPDATE rooms SET room_id = ? WHERE room_id = ?', (new_room_id, old_room_id))
+        # Update detection logs to reflect the new name
+        cursor.execute('UPDATE detection_logs SET kamera_id = ? WHERE kamera_id = ?', (new_room_id, old_room_id))
         conn.commit()

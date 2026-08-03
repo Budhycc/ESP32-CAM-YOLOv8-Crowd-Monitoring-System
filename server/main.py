@@ -9,7 +9,7 @@ import socketserver
 import os
 import websockets
 from config import HOST, PORT, DEFAULT_CAPACITY
-from database import init_db, save_detection, get_recent_logs, get_latest_log, get_all_rooms, get_room_capacity, upsert_room, delete_room, get_room_by_esp32
+from database import init_db, save_detection, get_recent_logs, get_latest_log, get_all_rooms, get_room_capacity, upsert_room, delete_room, get_room_by_esp32, rename_room
 from classifier import classify_crowd
 from detector import ObjectDetector
 
@@ -213,9 +213,12 @@ async def handle_dashboard_client(websocket):
                     }))
                 elif req.get("action") == "add_room":
                     room_id = req.get("room_id")
+                    old_room_id = req.get("old_room_id")
                     capacity = int(req.get("capacity", DEFAULT_CAPACITY))
                     esp32_id = req.get("esp32_id")
                     if room_id:
+                        if old_room_id and old_room_id != room_id:
+                            rename_room(old_room_id, room_id)
                         upsert_room(room_id, capacity, esp32_id)
                         active_rooms_cache = get_all_rooms()
                         await broadcast_to_dashboards({

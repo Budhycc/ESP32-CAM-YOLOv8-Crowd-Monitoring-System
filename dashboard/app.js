@@ -21,6 +21,8 @@ const els = {
     settingsModal: document.getElementById('settings-modal'),
     btnCloseModal: document.getElementById('btn-close-modal'),
     btnSaveRoom: document.getElementById('btn-save-room'),
+    btnCancelEdit: document.getElementById('btn-cancel-edit'),
+    formTitle: document.getElementById('form-title'),
     inputRoomId: document.getElementById('input-room-id'),
     inputCapacity: document.getElementById('input-capacity'),
     inputEsp32Id: document.getElementById('input-esp32-id'),
@@ -38,12 +40,30 @@ function init() {
     setInterval(checkCameraStatus, 1000);
 }
 
+let editingOldRoomId = null;
+
+function resetForm() {
+    els.inputRoomId.value = '';
+    els.inputCapacity.value = '';
+    els.inputEsp32Id.value = '';
+    editingOldRoomId = null;
+    
+    // Reset UI text & buttons
+    els.formTitle.textContent = 'Add Room';
+    els.btnSaveRoom.textContent = 'Save';
+    els.btnCancelEdit.classList.add('hidden');
+}
+
 function setupModalEvents() {
     els.btnSettings.addEventListener('click', () => {
         els.settingsModal.classList.remove('hidden');
     });
     els.btnCloseModal.addEventListener('click', () => {
         els.settingsModal.classList.add('hidden');
+        resetForm();
+    });
+    els.btnCancelEdit.addEventListener('click', () => {
+        resetForm();
     });
     els.btnSaveRoom.addEventListener('click', () => {
         const roomId = els.inputRoomId.value.trim();
@@ -53,12 +73,11 @@ function setupModalEvents() {
             ws.send(JSON.stringify({
                 action: 'add_room',
                 room_id: roomId,
+                old_room_id: editingOldRoomId,
                 capacity: capacity,
                 esp32_id: esp32Id
             }));
-            els.inputRoomId.value = '';
-            els.inputCapacity.value = '';
-            els.inputEsp32Id.value = '';
+            resetForm();
         }
     });
 }
@@ -163,21 +182,57 @@ function handleIncomingData(data) {
     }
     else if (data.type === 'detection_update') {
         const camId = data.kamera_id;
+        
+        // Prevent race condition: ignore stale "Unassigned" frames if the ESP is already mapped
+        if (camId.startsWith("Unassigned (")) {
+            const espId = camId.slice(12, -1);
+            if (currentRooms.some(r => r.esp32_id === espId)) {
+                return; // Skip rendering this frame, it's a ghost from before the assignment
+            }
+        } else {
+            // It's a named room. Ensure the room actually still exists!
+            // If it was just deleted, a stale frame might try to resurrect it.
+            if (!currentRooms.some(r => r.room_id === camId)) {
+                return; // Skip rendering this frame, it's a ghost from before deletion
+            }
+        }
+        
         ensureCameraCard(camId, data);
         updateCameraUI(camId, data);
         addHistoryItem(data);
     }
 }
 
+window.editRoom = function(roomId, capacity, esp32Id) {
+    editingOldRoomId = roomId;
+    els.inputRoomId.value = roomId;
+    els.inputCapacity.value = capacity;
+    els.inputEsp32Id.value = esp32Id === 'null' || !esp32Id ? '' : esp32Id;
+    
+    // Update UI text
+    els.formTitle.textContent = `Edit Room`;
+    els.btnSaveRoom.textContent = 'Update';
+    els.btnCancelEdit.classList.remove('hidden');
+    
+    els.inputRoomId.focus();
+}
+
 function renderRoomList(rooms) {
     els.settingsRoomList.innerHTML = '';
     rooms.forEach(room => {
         const espText = room.esp32_id ? `<br><small style="color:var(--text-muted)">Mapped to: ${room.esp32_id}</small>` : '';
+        const safeEspId = room.esp32_id ? `'${room.esp32_id}'` : 'null';
         const li = document.createElement('li');
         li.innerHTML = `
             <span><strong>${room.room_id}</strong> (Cap: ${room.capacity})${espText}</span>
-            <button class="btn-danger" onclick="deleteRoom('${room.room_id}')">Delete</button>
+            <div style="display: flex; gap: 0.5rem;">
+                <button class="btn-primary" onclick="editRoom('${room.room_id}', ${room.capacity}, ${safeEspId})" style="padding: 0.3rem 0.8rem; font-size: 0.8rem;">Edit</button>
+                <button class="btn-danger" onclick="deleteRoom('${room.room_id}')" style="padding: 0.3rem 0.8rem; font-size: 0.8rem;">Delete</button>
+            </div>
         `;
+        li.style.display = 'flex';
+        li.style.justifyContent = 'space-between';
+        li.style.alignItems = 'center';
         els.settingsRoomList.appendChild(li);
     });
 }
@@ -187,19 +242,30 @@ function renderActiveEsps() {
     els.activeEspsList.innerHTML = '';
     
     const mappedEsps = new Set(currentRooms.map(r => r.esp32_id).filter(id => id));
-    const unassigned = activeEsps.filter(id => id !== "Unknown" && !mappedEsps.has(id));
 
-    if (unassigned.length === 0) {
-        els.activeEspsList.innerHTML = '<li style="color:var(--text-muted)">No unassigned ESP32s connected.</li>';
+    if (activeEsps.length === 0) {
+        els.activeEspsList.innerHTML = '<li style="color:var(--text-muted)">No ESP32s connected.</li>';
         return;
     }
 
-    unassigned.forEach(id => {
+    activeEsps.forEach(id => {
+        if (id === "Unknown") return;
+        
+        const isMapped = mappedEsps.has(id);
         const li = document.createElement('li');
         li.style.cursor = 'pointer';
-        li.innerHTML = `
-            <span><strong>${id}</strong> <small style="color:var(--accent-color)">(Click to assign)</small></span>
-        `;
+        
+        if (isMapped) {
+            const roomName = currentRooms.find(r => r.esp32_id === id)?.room_id || 'Unknown';
+            li.innerHTML = `
+                <span><strong>${id}</strong> <small style="color:var(--status-warning)">(Assigned to ${roomName})</small></span>
+            `;
+        } else {
+            li.innerHTML = `
+                <span><strong>${id}</strong> <small style="color:var(--accent-color)">(Click to assign)</small></span>
+            `;
+        }
+
         li.addEventListener('click', () => {
             els.inputEsp32Id.value = id;
             els.inputRoomId.focus();
