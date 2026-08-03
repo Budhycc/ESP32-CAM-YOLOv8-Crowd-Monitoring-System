@@ -58,18 +58,26 @@ async def broadcast_to_dashboards(data_payload: dict):
     message = json.dumps(data_payload)
     disconnected = set()
 
-    # Iterate over a copy of the set to avoid RuntimeError if clients disconnect
-    for client in list(dashboard_clients):
+    async def send_to_client(client):
         try:
-            await client.send(message)
-        except websockets.exceptions.ConnectionClosed:
+            # Add a timeout so a slow client doesn't block the broadcast
+            await asyncio.wait_for(client.send(message), timeout=1.0)
+        except (websockets.exceptions.ConnectionClosed, asyncio.TimeoutError):
             disconnected.add(client)
         except Exception as e:
             logger.error(f"Error broadcasting to client: {e}")
             disconnected.add(client)
 
-    # Clean up disconnected clients
+    # Run all sends concurrently
+    if dashboard_clients:
+        await asyncio.gather(*(send_to_client(client) for client in list(dashboard_clients)))
+
+    # Clean up disconnected or slow clients
     for client in disconnected:
+        try:
+            await client.close()
+        except:
+            pass
         dashboard_clients.discard(client)
 
 async def handle_esp32_client(websocket, esp32_id):
@@ -108,10 +116,11 @@ async def handle_esp32_client(websocket, esp32_id):
                     continue
 
             # First perform preliminary classification to get crowd status for frame header
-            # 1. Run YOLOv8 detection
-            person_count, avg_conf, persons, annotated_jpeg = detector.process_frame(
-                image_bytes, 
-                draw_overlay=True
+            # 1. Run YOLOv8 detection in a separate thread to prevent blocking the asyncio event loop
+            loop = asyncio.get_running_loop()
+            person_count, avg_conf, persons, annotated_jpeg = await loop.run_in_executor(
+                None,
+                lambda: detector.process_frame(image_bytes, draw_overlay=True)
             )
 
             # 2. Perform Crowd Density Classification
@@ -122,11 +131,14 @@ async def handle_esp32_client(websocket, esp32_id):
             # (or detector can use the status directly)
 
             # 3. Save detection record to SQLite database
-            save_detection(
-                kamera_id=current_camera_id,
-                jumlah_orang=person_count,
-                status_keramaian=crowd_status,
-                confidence_rata2=avg_conf
+            await loop.run_in_executor(
+                None,
+                lambda: save_detection(
+                    kamera_id=current_camera_id,
+                    jumlah_orang=person_count,
+                    status_keramaian=crowd_status,
+                    confidence_rata2=avg_conf
+                )
             )
 
             # 4. Prepare data payload for Web Dashboard
