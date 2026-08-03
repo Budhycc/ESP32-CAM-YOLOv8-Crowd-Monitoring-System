@@ -25,6 +25,18 @@ def init_db():
                 confidence_rata2 REAL DEFAULT 0.0
             )
         ''')
+        cursor.execute('''
+            CREATE TABLE IF NOT EXISTS rooms (
+                room_id TEXT PRIMARY KEY,
+                capacity INTEGER NOT NULL
+            )
+        ''')
+        # Seed defaults if empty
+        cursor.execute('SELECT COUNT(*) FROM rooms')
+        if cursor.fetchone()[0] == 0:
+            cursor.executemany('''
+                INSERT INTO rooms (room_id, capacity) VALUES (?, ?)
+            ''', [("Ruang_A", 30), ("Ruang_B", 20)])
         conn.commit()
     logger.info(f"Database initialized at: {DB_PATH}")
 
@@ -68,3 +80,37 @@ def get_latest_log():
     """Retrieves the single most recent detection log."""
     logs = get_recent_logs(limit=1)
     return logs[0] if logs else None
+
+def get_all_rooms():
+    """Retrieves all room configurations."""
+    with get_connection() as conn:
+        cursor = conn.cursor()
+        cursor.execute('SELECT room_id, capacity FROM rooms ORDER BY room_id')
+        rows = cursor.fetchall()
+        return [dict(row) for row in rows]
+
+def get_room_capacity(room_id: str, default: int = 30):
+    """Gets capacity for a specific room, or default if not found."""
+    with get_connection() as conn:
+        cursor = conn.cursor()
+        cursor.execute('SELECT capacity FROM rooms WHERE room_id = ?', (room_id,))
+        row = cursor.fetchone()
+        return row['capacity'] if row else default
+
+def upsert_room(room_id: str, capacity: int):
+    """Adds or updates a room configuration."""
+    with get_connection() as conn:
+        cursor = conn.cursor()
+        cursor.execute('''
+            INSERT INTO rooms (room_id, capacity)
+            VALUES (?, ?)
+            ON CONFLICT(room_id) DO UPDATE SET capacity=excluded.capacity
+        ''', (room_id, capacity))
+        conn.commit()
+
+def delete_room(room_id: str):
+    """Deletes a room configuration."""
+    with get_connection() as conn:
+        cursor = conn.cursor()
+        cursor.execute('DELETE FROM rooms WHERE room_id = ?', (room_id,))
+        conn.commit()

@@ -1,6 +1,6 @@
-from config import ROOM_CAPACITY, SEPI_MAX_RATIO, SEDANG_MAX_RATIO
+from config import DEFAULT_CAPACITY, SEPI_MAX_RATIO, SEDANG_MAX_RATIO
 
-def classify_crowd(person_count: int, capacity: int = ROOM_CAPACITY) -> dict:
+def classify_crowd(person_count: int, capacity: int = DEFAULT_CAPACITY) -> dict:
     """
     Classifies room crowd density based on detected person count and room capacity.
     

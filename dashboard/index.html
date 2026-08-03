@@ -21,88 +21,67 @@
             <div class="logo">
                 <i class='bx bx-camera-movie'></i>
                 <h1>Crowd<span>Vision</span></h1>
+                <span class="badge" id="hw-badge" style="margin-left: 10px; background: rgba(255, 255, 255, 0.1); border: 1px solid rgba(255,255,255,0.2); color: #fff;">Detecting HW...</span>
             </div>
-            <div class="status-indicator">
-                <div class="pulse-dot" id="connection-dot"></div>
-                <span id="connection-status">Connecting...</span>
+            <div class="header-right" style="display: flex; gap: 1rem; align-items: center;">
+                <div class="status-indicator">
+                    <div class="pulse-dot" id="connection-dot"></div>
+                    <span id="connection-status">Connecting...</span>
+                </div>
+                <button id="btn-settings" class="btn-icon" title="Room Settings">
+                    <i class='bx bx-cog'></i>
+                </button>
             </div>
         </header>
 
         <!-- Main Content Grid -->
-        <main class="dashboard-grid">
-            <!-- Camera Feed Section -->
-            <section class="glass-panel feed-section">
-                <div class="panel-header">
-                    <h2><i class='bx bx-broadcast'></i> Live Feed</h2>
-                    <span class="badge" id="camera-id">CAM-01</span>
-                </div>
-                <div class="feed-container">
-                    <img id="video-feed" src="" alt="Waiting for stream..." class="hidden">
-                    <div id="feed-placeholder" class="placeholder">
-                        <i class='bx bx-sleepy'></i>
-                        <p>No video stream available</p>
-                    </div>
-                </div>
-                <div class="feed-meta">
-                    <span id="timestamp"><i class='bx bx-time-five'></i> --:--:--</span>
-                    <span id="fps"><i class='bx bx-tachometer'></i> 0 FPS</span>
-                </div>
+        <main class="dashboard-layout">
+            <!-- Cameras Grid -->
+            <section class="cameras-grid" id="cameras-container">
+                <!-- Camera cards will be dynamically injected here by app.js -->
             </section>
 
-            <!-- Stats Section -->
-            <section class="stats-section">
-                
-                <!-- Main Status Card -->
-                <div class="glass-card status-card" id="status-card">
-                    <h3>Current Status</h3>
-                    <div class="status-value" id="crowd-status">UNKNOWN</div>
-                    <p class="status-desc" id="status-desc">Waiting for data...</p>
-                </div>
-
-                <!-- Metrics Grid -->
-                <div class="metrics-grid">
-                    <div class="glass-card metric-card">
-                        <div class="metric-icon"><i class='bx bx-group'></i></div>
-                        <div class="metric-data">
-                            <h4>Person Count</h4>
-                            <div class="value"><span id="person-count">0</span> / <span id="capacity">0</span></div>
-                        </div>
+            <!-- Sidebar -->
+            <aside class="sidebar">
+                <!-- History Section -->
+                <section class="glass-panel history-section">
+                    <div class="panel-header">
+                        <h2><i class='bx bx-history'></i> Global History</h2>
                     </div>
-
-                    <div class="glass-card metric-card">
-                        <div class="metric-icon"><i class='bx bx-target-lock'></i></div>
-                        <div class="metric-data">
-                            <h4>Confidence</h4>
-                            <div class="value"><span id="avg-confidence">0</span>%</div>
-                        </div>
+                    <div class="history-list" id="history-list">
+                        <!-- History items will be populated here -->
                     </div>
-                </div>
-
-                <!-- Capacity Bar -->
-                <div class="glass-card capacity-card">
-                    <div class="card-header">
-                        <h3>Room Capacity</h3>
-                        <span id="capacity-percentage">0%</span>
-                    </div>
-                    <div class="progress-bar-container">
-                        <div class="progress-bar" id="capacity-bar"></div>
-                    </div>
-                </div>
-
-            </section>
-
-            <!-- History Section -->
-            <section class="glass-panel history-section">
-                <div class="panel-header">
-                    <h2><i class='bx bx-history'></i> Recent Detections</h2>
-                </div>
-                <div class="history-list" id="history-list">
-                    <!-- History items will be populated here -->
-                </div>
-            </section>
+                </section>
+            </aside>
         </main>
     </div>
 
-    <script src="app.js"></script>
+    <!-- Settings Modal -->
+    <div id="settings-modal" class="modal-overlay hidden">
+        <div class="modal-content glass-panel">
+            <div class="modal-header">
+                <h2><i class='bx bx-slider-alt'></i> Room Configuration</h2>
+                <button id="btn-close-modal" class="btn-icon"><i class='bx bx-x'></i></button>
+            </div>
+            <div class="modal-body">
+                <div class="add-room-form">
+                    <h3>Add / Edit Room</h3>
+                    <div class="form-group">
+                        <input type="text" id="input-room-id" placeholder="Room Name (e.g. Kantin)">
+                        <input type="number" id="input-capacity" placeholder="Capacity (e.g. 50)">
+                        <button id="btn-save-room" class="btn-primary">Save</button>
+                    </div>
+                </div>
+                <div class="room-list-container">
+                    <h3>Configured Rooms</h3>
+                    <ul id="settings-room-list" class="room-list">
+                        <!-- Populated by JS -->
+                    </ul>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script src="app.js?v=4"></script>
 </body>
 </html>

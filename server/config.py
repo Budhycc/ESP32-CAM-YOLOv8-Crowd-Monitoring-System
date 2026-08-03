@@ -4,9 +4,8 @@ import os
 HOST = os.getenv("SERVER_HOST", "0.0.0.0")
 PORT = int(os.getenv("SERVER_PORT", 8765))
 
-# Camera & Room Configuration
-CAMERA_ID = os.getenv("CAMERA_ID", "Ruang_A")
-ROOM_CAPACITY = int(os.getenv("ROOM_CAPACITY", 30))
+# Camera & Room Configuration (now managed in SQLite DB)
+DEFAULT_CAPACITY = 30
 
 # Crowd Density Thresholds (Percentages)
 # ≤ 30% -> Sepi

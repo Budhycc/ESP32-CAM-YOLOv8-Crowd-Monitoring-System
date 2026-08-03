@@ -11,7 +11,11 @@ class ObjectDetector:
         """Initializes and loads the YOLOv8 model ONCE at startup."""
         logger.info(f"Loading YOLOv8 model from '{model_path}'...")
         self.model = YOLO(model_path)
-        logger.info("YOLOv8 model loaded successfully.")
+        try:
+            self.device = str(self.model.device).upper()
+        except Exception:
+            self.device = "CPU (Fallback)"
+        logger.info(f"YOLOv8 model loaded successfully on {self.device}.")
 
     def process_frame(self, image_bytes: bytes, draw_overlay: bool = True, crowd_status: str = "Sepi"):
         """

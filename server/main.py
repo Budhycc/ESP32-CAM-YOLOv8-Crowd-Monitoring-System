@@ -3,9 +3,13 @@ import json
 import base64
 import logging
 import datetime
+import threading
+import http.server
+import socketserver
+import os
 import websockets
-from config import HOST, PORT, CAMERA_ID, ROOM_CAPACITY
-from database import init_db, save_detection, get_recent_logs, get_latest_log
+from config import HOST, PORT, DEFAULT_CAPACITY
+from database import init_db, save_detection, get_recent_logs, get_latest_log, get_all_rooms, get_room_capacity, upsert_room, delete_room
 from classifier import classify_crowd
 from detector import ObjectDetector
 
@@ -21,6 +25,27 @@ dashboard_clients = set()
 
 # Initialize YOLOv8 Object Detector
 detector = None
+
+def start_http_server():
+    """Runs a local HTTP server for the Web Dashboard in a background thread."""
+    web_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), '../dashboard'))
+    try:
+        os.chdir(web_dir)
+    except FileNotFoundError:
+        logger.error(f"Dashboard directory not found at {web_dir}")
+        return
+        
+    class QuietHandler(http.server.SimpleHTTPRequestHandler):
+        def log_message(self, format, *args):
+            pass # Suppress HTTP logs to keep terminal clean
+            
+    try:
+        # Allow port reuse just in case
+        socketserver.TCPServer.allow_reuse_address = True
+        httpd = socketserver.TCPServer(("", 8000), QuietHandler)
+        httpd.serve_forever()
+    except Exception as e:
+        logger.error(f"HTTP Server failed to start: {e}")
 
 async def broadcast_to_dashboards(data_payload: dict):
     """Broadcasts metadata and annotated frame to all connected Web Dashboard clients."""
@@ -43,10 +68,11 @@ async def broadcast_to_dashboards(data_payload: dict):
     for client in disconnected:
         dashboard_clients.discard(client)
 
-async def handle_esp32_client(websocket):
+async def handle_esp32_client(websocket, camera_id):
     """Handles incoming JPEG frames from ESP32-CAM over WebSocket."""
-    logger.info("ESP32-CAM connected to server.")
+    logger.info(f"ESP32-CAM ({camera_id}) connected to server.")
     frame_counter = 0
+    room_capacity = get_room_capacity(camera_id, DEFAULT_CAPACITY)
 
     try:
         async for message in websocket:
@@ -71,7 +97,7 @@ async def handle_esp32_client(websocket):
             )
 
             # 2. Perform Crowd Density Classification
-            classification = classify_crowd(person_count, ROOM_CAPACITY)
+            classification = classify_crowd(person_count, room_capacity)
             crowd_status = classification["status"]
 
             # Re-process frame with updated crowd status banner if needed
@@ -79,7 +105,7 @@ async def handle_esp32_client(websocket):
 
             # 3. Save detection record to SQLite database
             save_detection(
-                kamera_id=CAMERA_ID,
+                kamera_id=camera_id,
                 jumlah_orang=person_count,
                 status_keramaian=crowd_status,
                 confidence_rata2=avg_conf
@@ -93,9 +119,9 @@ async def handle_esp32_client(websocket):
                 "type": "detection_update",
                 "frame_id": frame_counter,
                 "waktu": timestamp_str,
-                "kamera_id": CAMERA_ID,
+                "kamera_id": camera_id,
                 "jumlah_orang": person_count,
-                "kapasitas": ROOM_CAPACITY,
+                "kapasitas": room_capacity,
                 "persentase": classification["persentase"],
                 "status": crowd_status,
                 "confidence_rata2": round(avg_conf, 2),
@@ -127,8 +153,8 @@ async def handle_dashboard_client(websocket):
         
         init_payload = {
             "type": "init_state",
-            "kamera_id": CAMERA_ID,
-            "kapasitas": ROOM_CAPACITY,
+            "rooms": get_all_rooms(),
+            "device": getattr(detector, 'device', 'UNKNOWN'),
             "latest": latest_log,
             "history": recent_history
         }
@@ -145,6 +171,23 @@ async def handle_dashboard_client(websocket):
                         "type": "history_response",
                         "history": history
                     }))
+                elif req.get("action") == "add_room":
+                    room_id = req.get("room_id")
+                    capacity = int(req.get("capacity", DEFAULT_CAPACITY))
+                    if room_id:
+                        upsert_room(room_id, capacity)
+                        await broadcast_to_dashboards({
+                            "type": "room_config_update",
+                            "rooms": get_all_rooms()
+                        })
+                elif req.get("action") == "delete_room":
+                    room_id = req.get("room_id")
+                    if room_id:
+                        delete_room(room_id)
+                        await broadcast_to_dashboards({
+                            "type": "room_config_update",
+                            "rooms": get_all_rooms()
+                        })
             except Exception as e:
                 logger.error(f"Error parsing dashboard client request: {e}")
 
@@ -159,14 +202,20 @@ async def connection_router(websocket, path=None):
     - '/ws/esp32' or root '/' -> ESP32-CAM stream producer
     - '/ws/dashboard' -> Web Dashboard stream consumer
     """
-    req_path = getattr(websocket, 'path', path) or '/'
+    try:
+        req_path = websocket.request.path
+    except AttributeError:
+        req_path = getattr(websocket, 'path', path) or '/'
+        
     logger.info(f"Incoming WebSocket connection on path: '{req_path}'")
 
     if req_path.startswith("/ws/dashboard"):
         await handle_dashboard_client(websocket)
     else:
         # Default or /ws/esp32 handles ESP32-CAM node
-        await handle_esp32_client(websocket)
+        parts = req_path.split("/")
+        camera_id = parts[-1] if len(parts) > 3 else "Unknown"
+        await handle_esp32_client(websocket, camera_id)
 
 async def main():
     global detector
@@ -181,9 +230,15 @@ async def main():
 
     # Start WebSocket Server
     logger.info(f"Step 3: Starting WebSocket Server on ws://{HOST}:{PORT}...")
+    
+    # Start Web Dashboard Server (Localhost HTTP)
+    logger.info(f"Step 4: Starting Web Dashboard Server at http://localhost:8000...")
+    http_thread = threading.Thread(target=start_http_server, daemon=True)
+    http_thread.start()
+
     async with websockets.serve(connection_router, HOST, PORT):
         logger.info(f"Server is RUNNING and listening on ws://{HOST}:{PORT}")
-        logger.info(f"- ESP32-CAM endpoint: ws://<SERVER_IP>:{PORT}/ws/esp32")
+        logger.info(f"- ESP32-CAM endpoint: ws://<SERVER_IP>:{PORT}/ws/esp32/<camera_id>")
         logger.info(f"- Dashboard endpoint: ws://<SERVER_IP>:{PORT}/ws/dashboard")
         await asyncio.Future()  # Run forever
 

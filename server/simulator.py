@@ -89,7 +89,7 @@ async def run_simulator(server_url: str, mode: str, fps: int = 5):
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="ESP32-CAM WebSocket Simulator")
-    parser.add_argument("--url", type=str, default="ws://localhost:8765/ws/esp32", help="Server WebSocket URL")
+    parser.add_argument("--url", type=str, default="ws://localhost:8765/ws/esp32/Ruang_A", help="Server WebSocket URL")
     parser.add_argument("--mode", type=str, choices=["synthetic", "webcam"], default="synthetic", help="Stream source mode")
     parser.add_argument("--fps", type=int, default=5, help="Frames per second")
 
