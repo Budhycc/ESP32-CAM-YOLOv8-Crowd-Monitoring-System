@@ -1,0 +1,13 @@
+--extra-index-url https://download.pytorch.org/whl/cu121
+
+# PyTorch dengan CUDA 12.1
+torch>=2.0.0
+torchvision
+torchaudio
+
+# YOLOv8 dan dependensi backend lainnya
+ultralytics>=8.0.0
+opencv-python>=4.8.0
+websockets>=12.0
+numpy>=1.24.0
+pillow>=10.0.0
