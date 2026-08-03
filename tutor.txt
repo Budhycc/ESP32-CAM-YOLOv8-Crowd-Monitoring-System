@@ -61,3 +61,10 @@ Anda bisa menjalankan file "test_hardware.py" di dalam folder server:
    python test_hardware.py
 
 Output akan memberitahu Anda secara pasti hardware apa yang sedang aktif dan berhasil dideteksi oleh sistem!
+
+
+
+
+
+simulator 
+python simulator.py --mode webcam
