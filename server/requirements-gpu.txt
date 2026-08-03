@@ -1,6 +1,6 @@
---extra-index-url https://download.pytorch.org/whl/cu121
+--extra-index-url https://download.pytorch.org/whl/cu118
 
-# PyTorch dengan CUDA 12.1
+# PyTorch dengan CUDA 11.8
 torch>=2.0.0
 torchvision
 torchaudio
