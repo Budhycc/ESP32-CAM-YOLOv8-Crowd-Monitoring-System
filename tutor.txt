@@ -1,0 +1,32 @@
+TUTORIAL: MENGAKTIFKAN GPU NVIDIA UNTUK YOLOv8 DI WINDOWS
+=========================================================
+
+Jika Anda memiliki GPU NVIDIA (seperti GTX 1650, RTX series, dll) di komputer Windows Anda, sangat disarankan untuk menggunakan GPU tersebut agar pemrosesan YOLOv8 (AI Object Detection) berjalan jauh lebih cepat dibandingkan dengan menggunakan CPU.
+
+SYARAT UTAMA:
+Pastikan driver NVIDIA (Game Ready Driver atau Studio Driver) sudah ter-install di komputer Anda (Biasanya sudah otomatis jika Anda bermain game). Anda tidak perlu menginstall "CUDA Toolkit" yang sangat besar dari website NVIDIA.
+
+LANGKAH-LANGKAH:
+
+1. BUKA TERMINAL (CMD / POWERSHELL / TERMINAL VSCODE)
+   Arahkan terminal Anda ke dalam folder "server" pada proyek ini. 
+   (Jika Anda menggunakan Virtual Environment / venv, pastikan venv tersebut sudah diaktifkan).
+
+2. HAPUS VERSI CPU (JIKA SUDAH TERLANJUR INSTALL)
+   Agar tidak terjadi bentrokan antara PyTorch versi CPU dan GPU, jalankan perintah ini untuk menghapus instalasi library yang lama:
+   
+   pip uninstall torch torchvision torchaudio ultralytics -y
+
+3. INSTALL PYTORCH GPU & DEPENDENSI LAINNYA
+   Jalankan file "requirements-gpu.txt" yang sudah disiapkan di dalam folder server. Perintah ini akan otomatis mengunduh PyTorch yang di-bundle dengan CUDA versi 12.1 dan library pendukung lainnya:
+
+   pip install -r requirements-gpu.txt
+
+4. SELESAI! JALANKAN SERVER
+   Sekarang Anda bisa langsung menjalankan server Python seperti biasa:
+   
+   python main.py
+   (atau python simulator.py)
+
+CATATAN:
+Library Ultralytics (YOLOv8) dirancang sangat pintar. Saat program dijalankan, YOLO akan otomatis mengecek keberadaan PyTorch versi CUDA. Jika ditemukan, YOLO akan memindahkan beban kerjanya ke kartu grafis (GPU) Anda secara otomatis tanpa perlu mengubah baris kode program sedikitpun!
