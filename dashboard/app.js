@@ -9,6 +9,7 @@ let reconnectInterval = 3000;
 const cameraState = {};
 let currentRooms = [];
 let activeEsps = [];
+let globalHistoryData = [];
 
 // Global DOM
 const els = {
@@ -18,6 +19,11 @@ const els = {
     historyList: document.getElementById('history-list'),
     hwBadge: document.getElementById('hw-badge'),
     btnSettings: document.getElementById('btn-settings'),
+    btnDownloadReport: document.getElementById('btn-download-report'),
+    btnViewReport: document.getElementById('btn-view-report'),
+    reportModal: document.getElementById('report-modal'),
+    btnCloseReport: document.getElementById('btn-close-report'),
+    fullHistoryList: document.getElementById('full-history-list'),
     settingsModal: document.getElementById('settings-modal'),
     btnCloseModal: document.getElementById('btn-close-modal'),
     btnSaveRoom: document.getElementById('btn-save-room'),
@@ -58,6 +64,20 @@ function setupModalEvents() {
     els.btnSettings.addEventListener('click', () => {
         els.settingsModal.classList.remove('hidden');
     });
+    if (els.btnDownloadReport) {
+        els.btnDownloadReport.addEventListener('click', downloadHistoryReport);
+    }
+    if (els.btnViewReport) {
+        els.btnViewReport.addEventListener('click', () => {
+            renderFullHistoryReport();
+            els.reportModal.classList.remove('hidden');
+        });
+    }
+    if (els.btnCloseReport) {
+        els.btnCloseReport.addEventListener('click', () => {
+            els.reportModal.classList.add('hidden');
+        });
+    }
     els.btnCloseModal.addEventListener('click', () => {
         els.settingsModal.classList.add('hidden');
         resetForm();
@@ -133,7 +153,10 @@ function handleIncomingData(data) {
             activeEsps = data.active_esps;
         }
         renderActiveEsps();
-        if (data.history) renderHistory(data.history);
+        if (data.history) {
+            globalHistoryData = data.history.slice();
+            renderHistory(data.history);
+        }
     } 
     else if (data.type === 'room_config_update') {
         if (data.rooms) {
@@ -199,7 +222,13 @@ function handleIncomingData(data) {
         
         ensureCameraCard(camId, data);
         updateCameraUI(camId, data);
-        addHistoryItem(data);
+        
+        const currentStatus = data.status || 'UNKNOWN';
+        if (cameraState[camId].lastStatus !== currentStatus) {
+            cameraState[camId].lastStatus = currentStatus;
+            globalHistoryData.unshift(data);
+            addHistoryItem(data);
+        }
     }
 }
 
@@ -313,7 +342,8 @@ function ensureCameraCard(camId, data) {
         lastFrameTime: Date.now(),
         frameCount: 0,
         fps: 0,
-        capacity: data.kapasitas || data.capacity || 0
+        capacity: data.kapasitas || data.capacity || 0,
+        lastStatus: null // Added to track status changes and prevent log spam
     };
 
     // Create DOM element
@@ -427,29 +457,29 @@ function renderHistory(historyArray) {
 function addHistoryItem(item, prepend = true) {
     if (!els.historyList) return;
     
-    const div = document.createElement('div');
-    div.className = `history-item status-${item.status}`;
+    const tr = document.createElement('tr');
+    tr.className = `history-row`;
     
-    const timeOnly = item.waktu.split(' ')[1] || item.waktu; // extract HH:MM:SS
-    
-    div.innerHTML = `
-        <div class="hist-info">
-            <span class="hist-time">${timeOnly} <b style="color:var(--accent-primary)">[${item.kamera_id}]</b></span>
-            <span class="hist-desc">Status: ${item.status}</span>
-        </div>
-        <div class="hist-count">
-            <i class='bx bx-user'></i> ${item.jumlah_orang}
-        </div>
+    const timeOnly = item.waktu.split(' ')[1] || item.waktu;
+    let statusClass = item.status.toLowerCase();
+
+    tr.innerHTML = `
+        <td class="col-time"><i class='bx bx-time-five'></i> ${timeOnly}</td>
+        <td class="col-room">${item.kamera_id}</td>
+        <td class="col-status">
+            <span class="hist-status-badge badge-${statusClass}">${item.status}</span>
+        </td>
+        <td class="col-count"><i class='bx bx-user'></i> ${item.jumlah_orang}</td>
     `;
     
     if (prepend) {
-        els.historyList.prepend(div);
+        els.historyList.prepend(tr);
         // Keep only last 50 items in DOM globally
         if (els.historyList.children.length > 50) {
             els.historyList.removeChild(els.historyList.lastChild);
         }
     } else {
-        els.historyList.appendChild(div);
+        els.historyList.appendChild(tr);
     }
 }
 
@@ -479,6 +509,72 @@ function checkCameraStatus() {
             if (cs) cs.textContent = 'OFFLINE';
         }
     }
+}
+
+function downloadHistoryReport() {
+    if (globalHistoryData.length === 0) {
+        alert("Tidak ada data riwayat untuk diunduh.");
+        return;
+    }
+    
+    let csvContent = "data:text/csv;charset=utf-8,";
+    csvContent += "Waktu,Ruangan (Kamera ID),Jumlah Orang,Status,Kapasitas\n";
+    
+    globalHistoryData.forEach(row => {
+        let time = row.waktu || "N/A";
+        let camId = (row.kamera_id || "Unknown").replace(/,/g, " ");
+        let count = row.jumlah_orang || 0;
+        let status = row.status || "UNKNOWN";
+        let capacity = row.kapasitas || cameraState[camId]?.capacity || 0;
+        
+        csvContent += `${time},${camId},${count},${status},${capacity}\n`;
+    });
+    
+    const encodedUri = encodeURI(csvContent);
+    const link = document.createElement("a");
+    link.setAttribute("href", encodedUri);
+    
+    const dateStr = new Date().toISOString().split('T')[0];
+    link.setAttribute("download", `Laporan_Keramaian_${dateStr}.csv`);
+    
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+}
+
+function renderFullHistoryReport() {
+    if (!els.fullHistoryList) return;
+    els.fullHistoryList.innerHTML = '';
+    
+    if (globalHistoryData.length === 0) {
+        els.fullHistoryList.innerHTML = '<tr><td colspan="5" style="text-align: center; padding: 2rem; color: var(--text-muted);">Tidak ada data riwayat tersedia.</td></tr>';
+        return;
+    }
+
+    globalHistoryData.forEach(item => {
+        const tr = document.createElement('tr');
+        tr.className = `history-row status-${item.status}`;
+        
+        let time = item.waktu || "N/A";
+        let camId = item.kamera_id || "Unknown";
+        let status = item.status || "UNKNOWN";
+        let count = item.jumlah_orang || 0;
+        let capacity = item.kapasitas || cameraState[camId]?.capacity || 0;
+        
+        let statusClass = status.toLowerCase();
+
+        tr.innerHTML = `
+            <td class="col-time"><i class='bx bx-time-five'></i> ${time}</td>
+            <td class="col-room">${camId}</td>
+            <td class="col-status">
+                <span class="hist-status-badge badge-${statusClass}">${status}</span>
+            </td>
+            <td class="col-count"><i class='bx bx-user'></i> ${count}</td>
+            <td class="col-capacity" style="font-weight: 700; text-align: center; color: var(--text-main);">${capacity}</td>
+        `;
+        
+        els.fullHistoryList.appendChild(tr);
+    });
 }
 
 window.onload = init;

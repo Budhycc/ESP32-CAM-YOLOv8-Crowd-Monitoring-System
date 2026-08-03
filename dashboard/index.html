@@ -45,11 +45,31 @@
             <aside class="sidebar fade-in" style="animation-delay: 0.2s;">
                 <!-- History Section -->
                 <section class="glass-panel history-section">
-                    <div class="panel-header">
+                    <div class="panel-header" style="display: flex; justify-content: space-between; align-items: center;">
                         <h2><i class='bx bx-history'></i> Global History</h2>
+                        <div style="display: flex; gap: 0.5rem;">
+                            <button id="btn-view-report" class="btn-icon" title="View Full Report" style="width: 36px; height: 36px; font-size: 1.2rem;">
+                                <i class='bx bx-table'></i>
+                            </button>
+                            <button id="btn-download-report" class="btn-icon" title="Download Report" style="width: 36px; height: 36px; font-size: 1.2rem;">
+                                <i class='bx bx-download'></i>
+                            </button>
+                        </div>
                     </div>
-                    <div class="history-list" id="history-list">
-                        <!-- History items will be populated here -->
+                    <div class="table-container">
+                        <table class="report-table">
+                            <thead>
+                                <tr>
+                                    <th>Waktu</th>
+                                    <th>Ruangan</th>
+                                    <th>Status</th>
+                                    <th>Jumlah</th>
+                                </tr>
+                            </thead>
+                            <tbody id="history-list">
+                                <!-- History rows will be populated here -->
+                            </tbody>
+                        </table>
                     </div>
                 </section>
             </aside>
@@ -87,6 +107,34 @@
                     <ul id="settings-room-list" class="room-list">
                         <!-- Populated by JS -->
                     </ul>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- History Report Modal -->
+    <div id="report-modal" class="modal-overlay hidden">
+        <div class="modal-content glass-panel" style="max-width: 800px; max-height: 85vh; display: flex; flex-direction: column;">
+            <div class="modal-header">
+                <h2><i class='bx bx-table'></i> Laporan Lengkap Keramaian</h2>
+                <button id="btn-close-report" class="btn-icon"><i class='bx bx-x'></i></button>
+            </div>
+            <div class="modal-body" style="overflow-y: auto; flex-grow: 1; padding-right: 0.5rem;">
+                <div class="table-container" style="max-height: 100%;">
+                    <table class="report-table" style="width: 100%;">
+                        <thead>
+                            <tr>
+                                <th>Waktu</th>
+                                <th>Ruangan (Kamera ID)</th>
+                                <th>Status</th>
+                                <th>Jumlah Orang</th>
+                                <th>Kapasitas</th>
+                            </tr>
+                        </thead>
+                        <tbody id="full-history-list">
+                            <!-- Populated by JS -->
+                        </tbody>
+                    </table>
                 </div>
             </div>
         </div>

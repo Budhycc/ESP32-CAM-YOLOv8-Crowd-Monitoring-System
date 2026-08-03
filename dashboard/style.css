@@ -505,74 +505,113 @@ header {
     border-bottom: 1px solid rgba(255,255,255,0.05);
 }
 
-.history-list {
+.table-container {
     flex-grow: 1;
     overflow-y: auto;
-    display: flex;
-    flex-direction: column;
-    gap: 0.8rem;
     padding-right: 0.5rem;
 }
 
-.history-list::-webkit-scrollbar { width: 4px; }
-.history-list::-webkit-scrollbar-track { background: transparent; }
-.history-list::-webkit-scrollbar-thumb { background: rgba(255,255,255,0.1); border-radius: 10px; }
+.table-container::-webkit-scrollbar { width: 4px; }
+.table-container::-webkit-scrollbar-track { background: transparent; }
+.table-container::-webkit-scrollbar-thumb { background: rgba(255,255,255,0.1); border-radius: 10px; }
 
-.history-item {
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
-    padding: 1rem;
-    background: rgba(255,255,255,0.02);
-    border-radius: 12px;
-    border: 1px solid rgba(255,255,255,0.03);
-    border-left: 4px solid var(--status-offline);
-    transition: transform 0.2s ease, background 0.2s ease;
-    animation: fadeInRight 0.3s ease forwards;
+.report-table {
+    width: 100%;
+    border-collapse: separate;
+    border-spacing: 0 0.5rem;
+    text-align: left;
 }
 
+.report-table thead th {
+    font-size: 0.8rem;
+    text-transform: uppercase;
+    letter-spacing: 1px;
+    color: var(--text-muted);
+    padding: 0.8rem 1rem;
+    font-weight: 600;
+    border-bottom: 1px solid rgba(255,255,255,0.05);
+}
+
+.history-row {
+    background: linear-gradient(145deg, rgba(255,255,255,0.02) 0%, rgba(255,255,255,0.01) 100%);
+    transition: all 0.2s ease;
+    animation: fadeInRight 0.3s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+}
+
+.history-row:hover {
+    background: rgba(255,255,255,0.05);
+    transform: translateY(-2px);
+    box-shadow: 0 4px 15px rgba(0,0,0,0.2);
+}
+
+.history-row td {
+    padding: 1rem;
+    border-top: 1px solid rgba(255,255,255,0.02);
+    border-bottom: 1px solid rgba(255,255,255,0.02);
+}
+
+.history-row td:first-child {
+    border-left: 1px solid rgba(255,255,255,0.02);
+    border-top-left-radius: 12px;
+    border-bottom-left-radius: 12px;
+}
+
+.history-row td:last-child {
+    border-right: 1px solid rgba(255,255,255,0.02);
+    border-top-right-radius: 12px;
+    border-bottom-right-radius: 12px;
+}
+
+/* Status specific left border using box-shadow on the first child */
+.history-row.status-Normal td:first-child { box-shadow: inset 4px 0 0 var(--status-safe); }
+.history-row.status-Waspada td:first-child { box-shadow: inset 4px 0 0 var(--status-warning); }
+.history-row.status-Padat td:first-child { box-shadow: inset 4px 0 0 var(--status-danger); }
+
 @keyframes fadeInRight {
-    from { opacity: 0; transform: translateX(10px); }
+    from { opacity: 0; transform: translateX(15px); }
     to { opacity: 1; transform: translateX(0); }
 }
 
-.history-item:hover {
-    transform: translateX(4px);
-    background: rgba(255,255,255,0.05);
-}
-
-.history-item.status-Normal { border-left-color: var(--status-safe); }
-.history-item.status-Waspada { border-left-color: var(--status-warning); }
-.history-item.status-Padat { border-left-color: var(--status-danger); }
-
-.hist-info {
-    display: flex;
-    flex-direction: column;
-    gap: 0.3rem;
-}
-.hist-time {
-    font-size: 0.75rem;
+.col-time {
+    font-size: 0.8rem;
     color: var(--text-muted);
-    font-family: var(--font-sans);
+    white-space: nowrap;
 }
-.hist-desc {
-    font-size: 0.95rem;
-    font-weight: 600;
-}
-.hist-count {
-    background: rgba(0,0,0,0.3);
-    padding: 0.4rem 0.8rem;
-    border-radius: 8px;
-    font-size: 0.9rem;
+.col-time i { margin-right: 0.3rem; }
+
+.col-room {
     font-weight: 700;
     color: var(--text-main);
-    display: flex;
-    align-items: center;
-    gap: 0.4rem;
+    letter-spacing: 0.5px;
 }
-.hist-count i {
+
+.col-status {
+    white-space: nowrap;
+}
+
+.col-count {
+    font-weight: 700;
+    color: var(--text-main);
+    white-space: nowrap;
+}
+.col-count i {
     color: var(--accent-primary);
+    margin-right: 0.3rem;
 }
+
+.hist-status-badge {
+    padding: 0.3rem 0.6rem;
+    border-radius: 6px;
+    font-size: 0.7rem;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 1px;
+    display: inline-block;
+}
+
+.badge-normal { background: rgba(16, 185, 129, 0.15); color: #34d399; border: 1px solid rgba(16, 185, 129, 0.3); }
+.badge-waspada { background: rgba(245, 158, 11, 0.15); color: #fbbf24; border: 1px solid rgba(245, 158, 11, 0.3); }
+.badge-padat { background: rgba(239, 68, 68, 0.15); color: #f87171; border: 1px solid rgba(239, 68, 68, 0.3); }
 
 /* =========================================
    Modal & Settings UI
