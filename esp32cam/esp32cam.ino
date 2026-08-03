@@ -9,7 +9,7 @@ const char* ssid = "YOUR_WIFI_SSID";
 const char* password = "YOUR_WIFI_PASSWORD";
 
 // WebSocket Server Configuration
-const char* esp32_id = "ESP-001";               // Ganti dengan ID unik perangkat ini (Hardware ID)
+String esp32_id = "";                           // Akan diisi otomatis dengan MAC Address di setup()
 String websocket_server = "";                   // Akan diisi otomatis via UDP Auto-Discovery
 const uint16_t websocket_port = 8765;           // Ganti dengan Port server Python (sesuai config.py)
 String websocket_path_str;
@@ -126,6 +126,15 @@ void setup() {
   Serial.println("");
   Serial.print("WiFi connected, IP address: ");
   Serial.println(WiFi.localIP());
+
+  // Generate ESP32 ID from MAC Address
+  uint8_t mac[6];
+  WiFi.macAddress(mac);
+  char macStr[18];
+  sprintf(macStr, "ESP-%02X%02X%02X", mac[3], mac[4], mac[5]);
+  esp32_id = String(macStr);
+  Serial.print("Generated Hardware ID: ");
+  Serial.println(esp32_id);
 
   // Setup Camera
   setupCamera();
