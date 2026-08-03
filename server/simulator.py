@@ -5,6 +5,7 @@ import websockets
 import time
 import argparse
 import logging
+import socket
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] Simulator: %(message)s")
 logger = logging.getLogger("ESP32Simulator")
@@ -34,8 +35,27 @@ def create_synthetic_frame(person_count: int = 3):
     _, encoded = cv2.imencode(".jpg", frame, [cv2.IMWRITE_JPEG_QUALITY, 80])
     return encoded.tobytes()
 
-async def run_simulator(server_url: str, mode: str, fps: int = 5):
+async def run_simulator(server_url: str, esp32_id: str, mode: str, fps: int = 5):
     """Connects to WebSocket server and streams simulated JPEG frames."""
+    if server_url.lower() == "auto":
+        logger.info("Listening for UDP Auto-Discovery on port 9876 (timeout 15s)...")
+        sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+        sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+        sock.bind(("", 9876))
+        sock.settimeout(15.0)
+        try:
+            data, addr = sock.recvfrom(1024)
+            msg = data.decode('utf-8')
+            if msg.startswith("YOLOV8_SERVER_ANNOUNCE:"):
+                port = msg.split(":")[1]
+                server_url = f"ws://{addr[0]}:{port}/ws/esp32/{esp32_id}"
+                logger.info(f"Auto-discovered server at {server_url}")
+        except socket.timeout:
+            logger.error("Auto-discovery timed out. Please specify --url manually.")
+            return
+        finally:
+            sock.close()
+    
     logger.info(f"Connecting to ESP32-CAM server at: {server_url}")
 
     cap = None
@@ -89,9 +109,10 @@ async def run_simulator(server_url: str, mode: str, fps: int = 5):
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="ESP32-CAM WebSocket Simulator")
-    parser.add_argument("--url", type=str, default="ws://localhost:8765/ws/esp32/Ruang_A", help="Server WebSocket URL")
+    parser.add_argument("--url", type=str, default="auto", help="Server WebSocket URL or 'auto' for UDP discovery")
+    parser.add_argument("--id", type=str, default="Sim_Camera", help="Hardware ID for this simulator (used in auto-discovery)")
     parser.add_argument("--mode", type=str, choices=["synthetic", "webcam"], default="synthetic", help="Stream source mode")
     parser.add_argument("--fps", type=int, default=5, help="Frames per second")
 
     args = parser.parse_args()
-    asyncio.run(run_simulator(args.url, args.mode, args.fps))
+    asyncio.run(run_simulator(args.url, args.id, args.mode, args.fps))
