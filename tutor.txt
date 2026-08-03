@@ -30,6 +30,27 @@ Jika Anda menggunakan laptop/PC bertenaga Intel (Gen 6 ke atas) dan hanya memili
    (Catatan: Saat pertama kali dijalankan, program akan memakan waktu sekitar 1 menit untuk mengkonversi model YOLO menjadi format khusus Intel (OpenVINO). Proses ini normal dan hanya terjadi SATU KALI saja).
 
 ---------------------------------------------------------
+BAGIAN C: MENGAKTIFKAN INTEL iGPU DI LINUX (OPSIONAL)
+---------------------------------------------------------
+Jika Anda menggunakan OS Linux (seperti Ubuntu, Fedora, Arch) dan ingin OpenVINO berjalan maksimal menggunakan GPU Bawaan Intel (iGPU), Anda wajib meng-install driver "Intel Compute Runtime" (OpenCL). 
+
+Jika tidak di-install, OpenVINO hanya bisa menggunakan Intel CPU Anda secara default.
+
+Berikut cara install driver-nya berdasarkan Distro Linux Anda (Jalankan di Terminal sistem biasa):
+
+1. Ubuntu / Debian / Linux Mint:
+   sudo apt-get update
+   sudo apt-get install intel-opencl-icd
+
+2. Fedora / RHEL:
+   sudo dnf install intel-compute-runtime
+
+3. Arch Linux / Manjaro:
+   sudo pacman -S intel-compute-runtime
+
+Setelah selesai di-install, jalankan tester hardware untuk mengecek keberhasilannya.
+
+---------------------------------------------------------
 CARA MENGETES HARDWARE (TESTER)
 ---------------------------------------------------------
 Anda bisa menjalankan file "test_hardware.py" di dalam folder server:
