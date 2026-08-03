@@ -21,7 +21,7 @@ BAGIAN A: PENGGUNA GPU NVIDIA (GTX, RTX, MX, dll)
 [KHUSUS PENGGUNA WINDOWS]
 Jika setelah menjalankan perintah di atas YOLOv8 masih berjalan di CPU (tidak mendeteksi CUDA), hapus PyTorch lama dan install ulang secara paksa menggunakan perintah ini di Command Prompt / PowerShell:
    pip uninstall torch torchvision torchaudio -y
-   pip install torch torchvision torchaudio --index-url https://download.pytorch.org/whl/cu121
+   pip install torch torchvision torchaudio --index-url https://download.pytorch.org/whl/cu118
 
 ---------------------------------------------------------
 BAGIAN B: PENGGUNA LAPTOP/PC INTEL (Tanpa VGA NVIDIA)
