@@ -10,9 +10,11 @@ import socket
 logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] Simulator: %(message)s")
 logger = logging.getLogger("ESP32Simulator")
 
-def create_synthetic_frame(person_count: int = 3):
+current_resolution = (640, 480)
+
+def create_synthetic_frame(person_count: int = 3, resolution=(640, 480)):
     """Generates a synthetic frame with specified number of dummy human figures for testing."""
-    h, w = 480, 640
+    w, h = resolution
     frame = np.full((h, w, 3), (240, 240, 240), dtype=np.uint8)
 
     # Draw room background
@@ -72,6 +74,23 @@ async def run_simulator(server_url: str, esp32_id: str, mode: str, fps: int = 5)
         async with websockets.connect(server_url) as websocket:
             logger.info("Connected successfully! Starting stream...")
             frame_num = 0
+            
+            async def receiver():
+                global current_resolution
+                try:
+                    async for message in websocket:
+                        if isinstance(message, str) and message.startswith("SET_RESOLUTION:"):
+                            res = message.split(":")[1].strip()
+                            if res == "QVGA": current_resolution = (320, 240)
+                            elif res == "VGA": current_resolution = (640, 480)
+                            elif res == "SVGA": current_resolution = (800, 600)
+                            elif res == "XGA": current_resolution = (1024, 768)
+                            elif res == "HD": current_resolution = (1280, 720)
+                            logger.info(f"Simulator resolution changed to {res} {current_resolution}")
+                except Exception:
+                    pass
+
+            asyncio.create_task(receiver())
 
             while True:
                 frame_num += 1
@@ -81,6 +100,7 @@ async def run_simulator(server_url: str, esp32_id: str, mode: str, fps: int = 5)
                     if not ret:
                         logger.error("Failed to read webcam frame.")
                         break
+                    frame = cv2.resize(frame, current_resolution)
                     _, encoded = cv2.imencode(".jpg", frame, [cv2.IMWRITE_JPEG_QUALITY, 75])
                     jpeg_bytes = encoded.tobytes()
                 else:
@@ -88,7 +108,7 @@ async def run_simulator(server_url: str, esp32_id: str, mode: str, fps: int = 5)
                     test_counts = [2, 6, 15, 25]
                     count_idx = (frame_num // 30) % len(test_counts)
                     num_people = test_counts[count_idx]
-                    jpeg_bytes = create_synthetic_frame(num_people)
+                    jpeg_bytes = create_synthetic_frame(num_people, current_resolution)
 
                 # Send binary JPEG frame over WebSocket
                 await websocket.send(jpeg_bytes)

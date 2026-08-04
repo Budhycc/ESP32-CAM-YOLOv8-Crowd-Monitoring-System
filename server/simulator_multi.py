@@ -25,10 +25,9 @@ def create_synthetic_frame(person_count: int = 3):
         cy = 200 + ((i * 50) % 150)
         cv2.circle(frame, (cx, cy), 25, (50, 50, 200), -1)
         cv2.rectangle(frame, (cx - 20, cy + 25), (cx + 20, cy + 120), (200, 50, 50), -1)
-        cv2.putText(frame, f"Person {i+1}", (cx - 30, cy - 35), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 0, 0), 1)
+    cv2.putText(frame, f"Person {i+1}", (cx - 30, cy - 35), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 0, 0), 1)
 
-    _, encoded = cv2.imencode(".jpg", frame, [cv2.IMWRITE_JPEG_QUALITY, 80])
-    return encoded.tobytes()
+    return frame
 
 async def frame_producer(mode: str, fps: int):
     """Reads from webcam or synthetic generator and updates the global latest_frame."""
@@ -55,8 +54,7 @@ async def frame_producer(mode: str, fps: int):
                     logger.error("Failed to read webcam frame.")
                     await asyncio.sleep(delay)
                     continue
-                _, encoded = cv2.imencode(".jpg", frame, [cv2.IMWRITE_JPEG_QUALITY, 75])
-                latest_frame = encoded.tobytes()
+                latest_frame = frame
             else:
                 test_counts = [2, 6, 15, 25]
                 count_idx = (frame_num // 30) % len(test_counts)
@@ -74,6 +72,7 @@ async def run_camera(server_url: str, esp32_id: str, fps: int):
     """Connects a single camera to the server and sends the latest_frame."""
     global latest_frame
     delay = 1.0 / fps
+    current_resolution = (640, 480)
     
     full_url = f"{server_url}/ws/esp32/{esp32_id}"
     
@@ -82,9 +81,28 @@ async def run_camera(server_url: str, esp32_id: str, fps: int):
             logger.info(f"[{esp32_id}] Connected to server!")
             frame_num = 0
             
+            async def receiver():
+                nonlocal current_resolution
+                try:
+                    async for message in websocket:
+                        if isinstance(message, str) and message.startswith("SET_RESOLUTION:"):
+                            res = message.split(":")[1].strip()
+                            if res == "QVGA": current_resolution = (320, 240)
+                            elif res == "VGA": current_resolution = (640, 480)
+                            elif res == "SVGA": current_resolution = (800, 600)
+                            elif res == "XGA": current_resolution = (1024, 768)
+                            elif res == "HD": current_resolution = (1280, 720)
+                            logger.info(f"[{esp32_id}] Resolution changed to {res} {current_resolution}")
+                except Exception:
+                    pass
+
+            asyncio.create_task(receiver())
+            
             while True:
-                if latest_frame:
-                    await websocket.send(latest_frame)
+                if latest_frame is not None:
+                    resized = cv2.resize(latest_frame, current_resolution)
+                    _, encoded = cv2.imencode(".jpg", resized, [cv2.IMWRITE_JPEG_QUALITY, 75])
+                    await websocket.send(encoded.tobytes())
                     frame_num += 1
                     if frame_num % 50 == 0:
                         logger.info(f"[{esp32_id}] Sent {frame_num} frames")

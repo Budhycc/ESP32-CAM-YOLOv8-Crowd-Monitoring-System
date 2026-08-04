@@ -11,7 +11,7 @@ import socket
 import time
 import websockets
 from config import HOST, PORT, DEFAULT_CAPACITY
-from database import init_db, save_detection, get_recent_logs, get_latest_log, get_all_rooms, get_room_capacity, upsert_room, delete_room, get_room_by_esp32, rename_room
+from database import init_db, save_detection, get_recent_logs, get_latest_log, get_all_rooms, get_room_capacity, upsert_room, delete_room, get_room_by_esp32, rename_room, update_room_ui_settings
 from classifier import classify_crowd
 from detector import ObjectDetector
 
@@ -23,9 +23,9 @@ logging.basicConfig(
 logger = logging.getLogger("ServerMain")
 
 # Global Connected Dashboard Clients Set
-# Global Connected Dashboard Clients Set
 dashboard_clients = set()
 active_esps = set()
+esp32_websockets = {}
 active_rooms_cache = []
 
 # Initialize YOLOv8 Object Detector
@@ -89,6 +89,16 @@ async def handle_esp32_client(websocket, esp32_id):
     frame_counter = 0
     
     active_esps.add(esp32_id)
+    esp32_websockets[esp32_id] = websocket
+    
+    # Apply saved resolution from database immediately
+    room_info = next((r for r in active_rooms_cache if r.get('esp32_id') == esp32_id), None)
+    if room_info and room_info.get('resolution') and room_info.get('resolution') != 'VGA':
+        try:
+            await websocket.send(f"SET_RESOLUTION:{room_info['resolution']}")
+        except Exception as e:
+            logger.error(f"Failed to send initial resolution to {esp32_id}: {e}")
+
     await broadcast_to_dashboards({
         "type": "active_esps_update",
         "active_esps": list(active_esps)
@@ -173,6 +183,7 @@ async def handle_esp32_client(websocket, esp32_id):
         logger.error(f"Error handling ESP32-CAM stream: {e}", exc_info=True)
     finally:
         active_esps.discard(esp32_id)
+        esp32_websockets.pop(esp32_id, None)
         await broadcast_to_dashboards({
             "type": "active_esps_update",
             "active_esps": list(active_esps)
@@ -237,6 +248,32 @@ async def handle_dashboard_client(websocket):
                             "type": "room_config_update",
                             "rooms": active_rooms_cache
                         })
+                elif req.get("action") == "set_resolution":
+                    esp32_id = req.get("esp32_id")
+                    res = req.get("resolution")
+                    room_id = req.get("room_id")
+                    
+                    if room_id:
+                        room = next((r for r in active_rooms_cache if r.get('room_id') == room_id), None)
+                        if room:
+                            update_room_ui_settings(room_id, res, room.get('show_bbox', 1))
+                            active_rooms_cache = get_all_rooms()
+
+                    if esp32_id and esp32_id in esp32_websockets:
+                        try:
+                            await esp32_websockets[esp32_id].send(f"SET_RESOLUTION:{res}")
+                            logger.info(f"Sent resolution {res} to {esp32_id}")
+                        except Exception as e:
+                            logger.error(f"Failed to send resolution: {e}")
+                            
+                elif req.get("action") == "update_bbox":
+                    room_id = req.get("room_id")
+                    show_bbox = req.get("show_bbox")
+                    if room_id:
+                        room = next((r for r in active_rooms_cache if r.get('room_id') == room_id), None)
+                        if room:
+                            update_room_ui_settings(room_id, room.get('resolution', 'VGA'), show_bbox)
+                            active_rooms_cache = get_all_rooms()
             except Exception as e:
                 logger.error(f"Error parsing dashboard client request: {e}")
 

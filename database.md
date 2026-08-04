@@ -14,6 +14,8 @@ Tabel ini digunakan untuk menyimpan konfigurasi dan daftar ruangan yang terdafta
 | `room_id` | `TEXT` | **(PRIMARY KEY)** Nama atau ID unik dari ruangan (misalnya: `Ruang_A`). |
 | `capacity` | `INTEGER` | Kapasitas maksimum ruangan (digunakan untuk menentukan status keramaian). |
 | `esp32_id` | `TEXT` | Hardware ID dari ESP32-CAM yang saat ini ditugaskan ke ruangan ini. Bernilai `NULL` atau kosong jika tidak ada kamera yang di-assign. |
+| `resolution` | `TEXT` | Pengaturan resolusi untuk streaming video dari ESP32 (contoh: `"VGA"`, `"HD"`). Default-nya adalah `"VGA"`. |
+| `show_bbox` | `BOOLEAN` | Preferensi tampilan *bounding box* deteksi orang di dashboard (1 = Aktif, 0 = Nonaktif). Default-nya adalah `1`. |
 
 **Relasi / Aturan:**
 - Satu `esp32_id` hanya boleh terikat pada satu `room_id`. Jika sebuah ESP32 di-assign ke ruangan baru, sistem akan otomatis melepaskannya (menghapus `esp32_id`) dari ruangan yang lama.

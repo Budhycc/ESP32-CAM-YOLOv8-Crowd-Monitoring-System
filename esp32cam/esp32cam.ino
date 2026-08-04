@@ -41,6 +41,34 @@ const int captureInterval = 500; // Interval ambil gambar saat ada gerakan (dala
 
 WebSocketsClient webSocket;
 
+void setResolution(String resStr) {
+  sensor_t * s = esp_camera_sensor_get();
+  if (!s) {
+    Serial.println("Sensor not found");
+    return;
+  }
+  
+  resStr.toUpperCase();
+  if (resStr == "QVGA") {
+    s->set_framesize(s, FRAMESIZE_QVGA);
+    Serial.println("Resolution set to QVGA (320x240)");
+  } else if (resStr == "VGA") {
+    s->set_framesize(s, FRAMESIZE_VGA);
+    Serial.println("Resolution set to VGA (640x480)");
+  } else if (resStr == "SVGA") {
+    s->set_framesize(s, FRAMESIZE_SVGA);
+    Serial.println("Resolution set to SVGA (800x600)");
+  } else if (resStr == "XGA") {
+    s->set_framesize(s, FRAMESIZE_XGA);
+    Serial.println("Resolution set to XGA (1024x768)");
+  } else if (resStr == "HD") {
+    s->set_framesize(s, FRAMESIZE_HD);
+    Serial.println("Resolution set to HD (1280x720)");
+  } else {
+    Serial.println("Unknown resolution format");
+  }
+}
+
 void webSocketEvent(WStype_t type, uint8_t * payload, size_t length) {
   switch(type) {
     case WStype_DISCONNECTED:
@@ -49,9 +77,16 @@ void webSocketEvent(WStype_t type, uint8_t * payload, size_t length) {
     case WStype_CONNECTED:
       Serial.printf("[WebSocket] Connected to url: %s\n", payload);
       break;
-    case WStype_TEXT:
+    case WStype_TEXT: {
       Serial.printf("[WebSocket] Received text: %s\n", payload);
+      String msg = String((char*)payload);
+      if (msg.startsWith("SET_RESOLUTION:")) {
+        String resStr = msg.substring(15);
+        resStr.trim();
+        setResolution(resStr);
+      }
       break;
+    }
     case WStype_BIN:
       Serial.printf("[WebSocket] Received binary length: %u\n", length);
       break;

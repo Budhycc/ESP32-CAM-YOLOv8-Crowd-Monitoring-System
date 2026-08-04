@@ -347,6 +347,20 @@ function updateStaticInfo(data) {
 function ensureCameraCard(camId, data) {
     if (cameraState[camId]) return; // already exists
 
+    const room = currentRooms.find(r => r.room_id === camId);
+    let savedBbox = true;
+    let savedRes = 'VGA';
+    
+    if (room) {
+        if (room.show_bbox !== undefined) savedBbox = (room.show_bbox === 1 || room.show_bbox === true);
+        if (room.resolution) savedRes = room.resolution;
+    } else {
+        const lsBbox = localStorage.getItem(`bbox-${camId}`);
+        const lsRes = localStorage.getItem(`res-${camId}`);
+        savedBbox = lsBbox !== null ? lsBbox === 'true' : true;
+        savedRes = lsRes || 'VGA';
+    }
+
     // Initialize state
     cameraState[camId] = {
         lastFrameTime: Date.now(),
@@ -354,7 +368,7 @@ function ensureCameraCard(camId, data) {
         fps: 0,
         capacity: data.kapasitas || data.capacity || 0,
         lastStatus: null, // Added to track status changes and prevent log spam
-        showBbox: true
+        showBbox: savedBbox
     };
 
     // Create DOM element
@@ -385,9 +399,16 @@ function ensureCameraCard(camId, data) {
                     <span id="resolution-${camId}"><i class='bx bx-expand'></i> --x--</span>
                 </div>
                 <div>
-                    <label style="display: flex; align-items: center; cursor: pointer; font-size: 0.8rem; gap: 5px; color: var(--text-secondary);">
-                        <input type="checkbox" id="toggle-bbox-${camId}" checked onchange="cameraState['${camId}'].showBbox = this.checked;"> Tampilkan Box
+                    <label style="display: flex; align-items: center; cursor: pointer; font-size: 0.8rem; gap: 5px; color: var(--text-secondary); margin-bottom: 5px;">
+                        <input type="checkbox" id="toggle-bbox-${camId}" ${cameraState[camId].showBbox ? 'checked' : ''} onchange="cameraState['${camId}'].showBbox = this.checked; updateBboxSetting('${camId}', this.checked);"> Tampilkan Box
                     </label>
+                    <select id="res-select-${camId}" onchange="changeResolution('${camId}', this.value)" style="font-size: 0.8rem; padding: 2px 5px; background: rgba(255,255,255,0.1); border: 1px solid rgba(255,255,255,0.2); color: white; border-radius: 4px; outline: none; cursor: pointer;">
+                        <option style="color: black" value="QVGA" ${savedRes === 'QVGA' ? 'selected' : ''}>QVGA (320x240)</option>
+                        <option style="color: black" value="VGA" ${savedRes === 'VGA' ? 'selected' : ''}>VGA (640x480)</option>
+                        <option style="color: black" value="SVGA" ${savedRes === 'SVGA' ? 'selected' : ''}>SVGA (800x600)</option>
+                        <option style="color: black" value="XGA" ${savedRes === 'XGA' ? 'selected' : ''}>XGA (1024x768)</option>
+                        <option style="color: black" value="HD" ${savedRes === 'HD' ? 'selected' : ''}>HD (1280x720)</option>
+                    </select>
                 </div>
             </div>
 
@@ -657,6 +678,42 @@ function renderFullHistoryReport() {
         
         els.fullHistoryList.appendChild(tr);
     });
+}
+
+window.updateBboxSetting = function(roomId, showBbox) {
+    localStorage.setItem(`bbox-${roomId}`, showBbox);
+    if (ws && ws.readyState === WebSocket.OPEN) {
+        ws.send(JSON.stringify({
+            action: 'update_bbox',
+            room_id: roomId,
+            show_bbox: showBbox
+        }));
+    }
+}
+
+window.changeResolution = function(roomId, res) {
+    localStorage.setItem(`res-${roomId}`, res);
+    const room = currentRooms.find(r => r.room_id === roomId);
+    let esp32Id = room ? room.esp32_id : null;
+    
+    // If it's an unassigned camera, the camId itself contains the esp32_id
+    if (roomId.startsWith("Unassigned (")) {
+        esp32Id = roomId.slice(12, -1);
+    }
+
+    if (ws && ws.readyState === WebSocket.OPEN) {
+        const payload = {
+            action: 'set_resolution',
+            room_id: roomId,
+            resolution: res
+        };
+        if (esp32Id) payload.esp32_id = esp32Id;
+        
+        ws.send(JSON.stringify(payload));
+        console.log(`Sent resolution change: ${res} for Room: ${roomId}, ESP32: ${esp32Id}`);
+    } else {
+        alert("Cannot change resolution: Not connected to server.");
+    }
 }
 
 document.addEventListener('DOMContentLoaded', init);
