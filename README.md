@@ -143,23 +143,26 @@ Jika Anda belum memiliki hardware ESP32-CAM, Anda bisa mensimulasikannya. Simula
    ```
 
 *Opsi Tambahan: Anda bisa mengatur kecepatan frame dengan flag `--fps` (Contoh: `python simulator.py --mode synthetic --fps 2`).*
-
+*Untuk menyimulasikan banyak kamera sekaligus, jalankan `python simulator_multi.py --count 3`.*
 ---
 
 ## Modul 3: Web Dashboard (Frontend)
 
-Dashboard berbasis web untuk menampilkan analisis *real-time* yang elegan dengan gaya *glassmorphism* dan dukungan *Dark Mode*.
+Dashboard berbasis web untuk menampilkan analisis *real-time* yang elegan dengan gaya *glassmorphism* dan dukungan *Dark Mode*. Seluruh aset (font dan ikon) disimpan secara lokal sehingga dashboard dapat berjalan 100% *offline* tanpa butuh internet.
 
 ### Fitur Utama:
-- **Live Video Feed**: Menampilkan tangkapan layar ESP32-CAM beserta *bounding-box* hasil deteksi AI.
+- **Multi-Camera Support**: Memantau banyak ruangan (ESP32-CAM) secara bersamaan dalam satu layar.
+- **Live Video Feed**: Menampilkan streaming video beserta resolusi, FPS, dan Latensi pengiriman.
+- **Interactive UI**: Menyediakan tombol fitur *Full-Screen* untuk perbesaran layar tiap kamera dan *Toggle* on/off untuk *bounding box* AI.
 - **Metrik Responsif**: Menampilkan jumlah orang (vs kapasitas), tingkat persentase kepadatan (Aman/Waspada/Padat).
-- **Log Riwayat**: Mencatat riwayat deteksi keramaian terbaru yang terekam.
+- **Riwayat & Laporan**: Mencatat histori deteksi keramaian dan menyediakan fitur *Export to CSV* (Excel).
 
 ### Cara Menjalankan:
-1. Pastikan modul Server (Backend) sedang berjalan.
-2. Buka folder `dashboard/`.
-3. Klik ganda pada file `index.html` untuk membukanya di browser (Chrome/Edge/Firefox). Tidak memerlukan server web eksternal. 
-*(Pastikan IP pada `app.js` sudah disesuaikan jika server dan dashboard berada di komputer/perangkat yang berbeda).*
+1. Pastikan modul Server (`python main.py`) sedang berjalan. Server otomatis menyediakan host dashboard di port 8000.
+2. Buka browser (Chrome/Edge/Firefox) di komputer yang sama dan akses:
+   **http://localhost:8000**
+3. Jika diakses dari HP atau komputer lain di jaringan WiFi yang sama, gunakan IP lokal server:
+   **http://<IP_KOMPUTER_SERVER>:8000**
 
 ---
 
