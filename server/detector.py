@@ -9,9 +9,10 @@ logger = logging.getLogger("YOLOv8Detector")
 class ObjectDetector:
     def __init__(self, model_path: str = YOLO_MODEL_PATH):
         """Initializes and loads the YOLOv8 model ONCE at startup."""
+        import os
+        model_path = os.path.abspath(model_path)
         logger.info(f"Loading YOLOv8 model from '{model_path}'...")
         import torch
-        import os
         
         if torch.cuda.is_available():
             self.model = YOLO(model_path)
@@ -31,10 +32,10 @@ class ObjectDetector:
                 core = ov.Core()
                 if "GPU" in core.available_devices:
                     self.device = "OpenVINO (Intel iGPU)"
-                    self.inference_device = "GPU"
+                    self.inference_device = "gpu"
                 else:
                     self.device = "OpenVINO (Intel CPU)"
-                    self.inference_device = "CPU"
+                    self.inference_device = "cpu"
                     
             except ImportError:
                 self.model = YOLO(model_path)
