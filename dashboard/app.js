@@ -136,6 +136,16 @@ function connectWebSocket() {
     };
 }
 
+// Force reconnect when user switches back to the tab (bypasses browser background throttling)
+document.addEventListener("visibilitychange", () => {
+    if (document.visibilityState === "visible") {
+        if (!ws || ws.readyState === WebSocket.CLOSED) {
+            console.log("Tab is visible again. Forcing reconnect...");
+            connectWebSocket();
+        }
+    }
+});
+
 // ==========================================
 // Data Handling
 // ==========================================
@@ -649,7 +659,7 @@ function renderFullHistoryReport() {
     });
 }
 
-window.onload = init;
+document.addEventListener('DOMContentLoaded', init);
 
 // ==========================================
 // Fullscreen Management
