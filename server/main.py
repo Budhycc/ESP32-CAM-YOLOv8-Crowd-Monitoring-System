@@ -87,6 +87,8 @@ async def handle_esp32_client(websocket, esp32_id):
     global active_rooms_cache
     logger.info(f"ESP32-CAM (Hardware ID: {esp32_id}) connected to server.")
     frame_counter = 0
+    last_person_time = time.time()
+    last_frame_time = time.time()
     
     active_esps.add(esp32_id)
     esp32_websockets[esp32_id] = websocket
@@ -106,6 +108,12 @@ async def handle_esp32_client(websocket, esp32_id):
 
     try:
         async for message in websocket:
+            now = time.time()
+            if now - last_frame_time > 5.0:
+                # Kamera baru bangun dari mode sleep
+                last_person_time = now
+            last_frame_time = now
+
             room_info = next((r for r in active_rooms_cache if r.get('esp32_id') == esp32_id), None)
             if room_info:
                 current_camera_id = room_info['room_id']
@@ -139,8 +147,21 @@ async def handle_esp32_client(websocket, esp32_id):
             classification = classify_crowd(person_count, current_capacity)
             crowd_status = classification["status"]
 
-            # Re-process frame with updated crowd status banner if needed
-            # (or detector can use the status directly)
+            # Smart-Streaming Logic
+            if person_count > 0:
+                last_person_time = now
+                
+            if person_count == 0 and (now - last_person_time > 15.0):
+                logger.info(f"Kamera {current_camera_id} tidak melihat orang selama 15 detik. Mengirim perintah SLEEP.")
+                try:
+                    await websocket.send("SLEEP")
+                    await broadcast_to_dashboards({
+                        "type": "camera_sleep",
+                        "kamera_id": current_camera_id
+                    })
+                except Exception as e:
+                    logger.error(f"Gagal mengirim SLEEP: {e}")
+                last_person_time = now # reset timer agar tidak spam
 
             # 3. Save detection record to SQLite database
             await loop.run_in_executor(

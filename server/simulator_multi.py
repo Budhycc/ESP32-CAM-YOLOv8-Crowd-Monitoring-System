@@ -81,24 +81,37 @@ async def run_camera(server_url: str, esp32_id: str, fps: int):
             logger.info(f"[{esp32_id}] Connected to server!")
             frame_num = 0
             
+            state = {"is_sleeping": False}
+            
             async def receiver():
                 nonlocal current_resolution
                 try:
                     async for message in websocket:
-                        if isinstance(message, str) and message.startswith("SET_RESOLUTION:"):
-                            res = message.split(":")[1].strip()
-                            if res == "QVGA": current_resolution = (320, 240)
-                            elif res == "VGA": current_resolution = (640, 480)
-                            elif res == "SVGA": current_resolution = (800, 600)
-                            elif res == "XGA": current_resolution = (1024, 768)
-                            elif res == "HD": current_resolution = (1280, 720)
-                            logger.info(f"[{esp32_id}] Resolution changed to {res} {current_resolution}")
+                        if isinstance(message, str):
+                            if message.startswith("SET_RESOLUTION:"):
+                                res = message.split(":")[1].strip()
+                                if res == "QVGA": current_resolution = (320, 240)
+                                elif res == "VGA": current_resolution = (640, 480)
+                                elif res == "SVGA": current_resolution = (800, 600)
+                                elif res == "XGA": current_resolution = (1024, 768)
+                                elif res == "HD": current_resolution = (1280, 720)
+                                logger.info(f"[{esp32_id}] Resolution changed to {res} {current_resolution}")
+                            elif message == "SLEEP":
+                                logger.info(f"[{esp32_id}] Received SLEEP command. Entering STANDBY mode.")
+                                state["is_sleeping"] = True
                 except Exception:
                     pass
 
             asyncio.create_task(receiver())
             
             while True:
+                if state["is_sleeping"]:
+                    logger.info(f"[{esp32_id}] Sleeping. Waking up in 10 seconds (Simulating PIR motion)...")
+                    await asyncio.sleep(10)
+                    state["is_sleeping"] = False
+                    logger.info(f"[{esp32_id}] Simulated PIR WAKEUP! Resuming stream.")
+                    continue
+
                 if latest_frame is not None:
                     resized = cv2.resize(latest_frame, current_resolution)
                     _, encoded = cv2.imencode(".jpg", resized, [cv2.IMWRITE_JPEG_QUALITY, 75])

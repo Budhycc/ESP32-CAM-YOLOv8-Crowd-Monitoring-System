@@ -16,6 +16,7 @@ String websocket_path_str;
 // PIR Sensor Configuration
 const int pirPin = 13; // Pin yang terhubung ke sensor PIR (sesuaikan jika berbeda)
 bool motionDetected = false;
+bool isStreaming = false;
 unsigned long lastCaptureTime = 0;
 const int captureInterval = 500; // Interval ambil gambar saat ada gerakan (dalam ms)
 
@@ -84,6 +85,9 @@ void webSocketEvent(WStype_t type, uint8_t * payload, size_t length) {
         String resStr = msg.substring(15);
         resStr.trim();
         setResolution(resStr);
+      } else if (msg == "SLEEP") {
+        Serial.println("Perintah SLEEP dari server diterima. Menghentikan streaming.");
+        isStreaming = false;
       }
       break;
     }
@@ -225,19 +229,22 @@ void loop() {
   
   if (pirState == HIGH) {
     if (!motionDetected) {
-      Serial.println("Gerakan Terdeteksi! Memulai pengiriman frame...");
+      Serial.println("Gerakan di pintu terdeteksi! Membangunkan kamera...");
       motionDetected = true;
-    }
-    
-    // Kirim gambar ke server setiap interval (e.g. 500ms) selama ada gerakan
-    if (millis() - lastCaptureTime > captureInterval) {
-      sendCameraFrame();
-      lastCaptureTime = millis();
+      isStreaming = true; // Nyalakan streaming
     }
   } else {
     if (motionDetected) {
-      Serial.println("Gerakan Berhenti.");
+      // Hanya mereset flag gerakan lokal, streaming tetap jalan sampai server suruh SLEEP
       motionDetected = false;
+    }
+  }
+
+  // Kirim gambar ke server setiap interval (e.g. 500ms) selama status streaming aktif
+  if (isStreaming) {
+    if (millis() - lastCaptureTime > captureInterval) {
+      sendCameraFrame();
+      lastCaptureTime = millis();
     }
   }
 }

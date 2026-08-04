@@ -75,24 +75,37 @@ async def run_simulator(server_url: str, esp32_id: str, mode: str, fps: int = 5)
             logger.info("Connected successfully! Starting stream...")
             frame_num = 0
             
+            state = {"is_sleeping": False}
+            
             async def receiver():
                 global current_resolution
                 try:
                     async for message in websocket:
-                        if isinstance(message, str) and message.startswith("SET_RESOLUTION:"):
-                            res = message.split(":")[1].strip()
-                            if res == "QVGA": current_resolution = (320, 240)
-                            elif res == "VGA": current_resolution = (640, 480)
-                            elif res == "SVGA": current_resolution = (800, 600)
-                            elif res == "XGA": current_resolution = (1024, 768)
-                            elif res == "HD": current_resolution = (1280, 720)
-                            logger.info(f"Simulator resolution changed to {res} {current_resolution}")
+                        if isinstance(message, str):
+                            if message.startswith("SET_RESOLUTION:"):
+                                res = message.split(":")[1].strip()
+                                if res == "QVGA": current_resolution = (320, 240)
+                                elif res == "VGA": current_resolution = (640, 480)
+                                elif res == "SVGA": current_resolution = (800, 600)
+                                elif res == "XGA": current_resolution = (1024, 768)
+                                elif res == "HD": current_resolution = (1280, 720)
+                                logger.info(f"Simulator resolution changed to {res} {current_resolution}")
+                            elif message == "SLEEP":
+                                logger.info("Received SLEEP command. Simulator entering STANDBY mode.")
+                                state["is_sleeping"] = True
                 except Exception:
                     pass
 
             asyncio.create_task(receiver())
 
             while True:
+                if state["is_sleeping"]:
+                    logger.info("Simulator is sleeping. Waking up in 10 seconds (Simulating PIR motion)...")
+                    await asyncio.sleep(10)
+                    state["is_sleeping"] = False
+                    logger.info("Simulated PIR WAKEUP! Resuming stream.")
+                    continue
+
                 frame_num += 1
 
                 if mode == "webcam" and cap and cap.isOpened():

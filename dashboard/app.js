@@ -212,6 +212,21 @@ function handleIncomingData(data) {
             activeEsps = data.active_esps;
             renderActiveEsps();
         }
+    } else if (data.type === "camera_sleep") {
+        const camId = data.kamera_id;
+        if (cameraState[camId]) {
+            cameraState[camId].isSleeping = true;
+            const videoEl = document.getElementById(`video-feed-${camId}`);
+            const phEl = document.getElementById(`feed-placeholder-${camId}`);
+            const cs = document.getElementById(`crowd-status-${camId}`);
+            
+            if (videoEl) videoEl.classList.add('hidden');
+            if (phEl) {
+                phEl.classList.remove('hidden');
+                phEl.innerHTML = `<i class='bx bx-sleepy'></i><p>STANDBY (Ruangan Kosong)</p>`;
+            }
+            if (cs) cs.textContent = 'STANDBY';
+        }
     }
     else if (data.type === 'detection_update') {
         const camId = data.kamera_id;
@@ -368,7 +383,8 @@ function ensureCameraCard(camId, data) {
         fps: 0,
         capacity: data.kapasitas || data.capacity || 0,
         lastStatus: null, // Added to track status changes and prevent log spam
-        showBbox: savedBbox
+        showBbox: savedBbox,
+        isSleeping: false
     };
 
     // Create DOM element
@@ -448,8 +464,9 @@ function ensureCameraCard(camId, data) {
 
 function updateCameraUI(camId, data) {
     const state = cameraState[camId];
-    state.frameCount++;
     state.lastFrameTime = Date.now();
+    state.frameCount++;
+    state.isSleeping = false;
     state.capacity = data.kapasitas || state.capacity;
 
     // Update DOM
@@ -598,6 +615,11 @@ function checkCameraStatus() {
         
         // Check offline status
         if (Date.now() - state.lastFrameTime > 3000) {
+            // Check if it's intentionally sleeping
+            if (state.isSleeping) {
+                continue; // It's in standby, let it be. UI already updated.
+            }
+
             const videoEl = document.getElementById(`video-feed-${camId}`);
             const phEl = document.getElementById(`feed-placeholder-${camId}`);
             if (videoEl) videoEl.classList.add('hidden');
