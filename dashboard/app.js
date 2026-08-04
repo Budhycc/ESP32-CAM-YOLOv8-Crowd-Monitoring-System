@@ -343,7 +343,8 @@ function ensureCameraCard(camId, data) {
         frameCount: 0,
         fps: 0,
         capacity: data.kapasitas || data.capacity || 0,
-        lastStatus: null // Added to track status changes and prevent log spam
+        lastStatus: null, // Added to track status changes and prevent log spam
+        showBbox: true
     };
 
     // Create DOM element
@@ -354,17 +355,26 @@ function ensureCameraCard(camId, data) {
                 <span class="badge" id="camera-id-${camId}">${camId}</span>
             </div>
             
-            <div class="feed-container">
-                <img id="video-feed-${camId}" src="" alt="Waiting for stream..." class="hidden">
+            <div class="feed-container" style="position: relative;">
+                <img id="video-feed-${camId}" src="" alt="Waiting for stream..." class="hidden" style="width: 100%; height: auto; display: block;">
+                <canvas id="bbox-canvas-${camId}" class="hidden" style="position: absolute; top: 0; left: 0; width: 100%; height: 100%; pointer-events: none;"></canvas>
                 <div id="feed-placeholder-${camId}" class="placeholder">
                     <i class='bx bx-sleepy'></i>
                     <p>No video stream</p>
                 </div>
             </div>
             
-            <div class="feed-meta">
-                <span id="timestamp-${camId}"><i class='bx bx-time-five'></i> --:--:--</span>
-                <span id="fps-${camId}"><i class='bx bx-tachometer'></i> 0 FPS</span>
+            <div class="feed-meta" style="display: flex; justify-content: space-between; align-items: center;">
+                <div>
+                    <span id="timestamp-${camId}"><i class='bx bx-time-five'></i> --:--:--</span>
+                    <span id="fps-${camId}"><i class='bx bx-tachometer'></i> 0 FPS</span>
+                    <span id="latency-${camId}"><i class='bx bx-stopwatch'></i> -- ms</span>
+                </div>
+                <div>
+                    <label style="display: flex; align-items: center; cursor: pointer; font-size: 0.8rem; gap: 5px; color: var(--text-secondary);">
+                        <input type="checkbox" id="toggle-bbox-${camId}" checked onchange="cameraState['${camId}'].showBbox = this.checked;"> Tampilkan Box
+                    </label>
+                </div>
             </div>
 
             <!-- Stats inside card -->
@@ -411,6 +421,10 @@ function updateCameraUI(camId, data) {
     document.getElementById(`capacity-${camId}`).textContent = state.capacity;
     document.getElementById(`person-count-${camId}`).textContent = data.jumlah_orang;
     document.getElementById(`timestamp-${camId}`).innerHTML = `<i class='bx bx-time-five'></i> ${data.waktu}`;
+    if (data.latensi) {
+        const latEl = document.getElementById(`latency-${camId}`);
+        if (latEl) latEl.innerHTML = `<i class='bx bx-stopwatch'></i> ${data.latensi} ms`;
+    }
     
     // Status Logic
     const statusStr = data.status || 'UNKNOWN';
@@ -436,10 +450,57 @@ function updateCameraUI(camId, data) {
     if (data.frame_b64 && data.frame_b64.length > 0) {
         const videoEl = document.getElementById(`video-feed-${camId}`);
         const phEl = document.getElementById(`feed-placeholder-${camId}`);
+        const canvasEl = document.getElementById(`bbox-canvas-${camId}`);
+        
         if (videoEl && phEl) {
             videoEl.src = `data:image/jpeg;base64,${data.frame_b64}`;
             videoEl.classList.remove('hidden');
             phEl.classList.add('hidden');
+            
+            // Draw Bounding Boxes on Canvas
+            if (canvasEl && state.showBbox) {
+                canvasEl.classList.remove('hidden');
+                const ctx = canvasEl.getContext('2d');
+                
+                const drawBoxes = () => {
+                    canvasEl.width = videoEl.clientWidth;
+                    canvasEl.height = videoEl.clientHeight;
+                    ctx.clearRect(0, 0, canvasEl.width, canvasEl.height);
+                    
+                    if (!videoEl.naturalWidth) return;
+                    
+                    const scaleX = canvasEl.width / videoEl.naturalWidth;
+                    const scaleY = canvasEl.height / videoEl.naturalHeight;
+                    
+                    if (data.deteksi_detail && data.deteksi_detail.length > 0) {
+                        data.deteksi_detail.forEach(person => {
+                            const [x1, y1, x2, y2] = person.bbox;
+                            const conf = person.confidence;
+                            
+                            const rectX = x1 * scaleX;
+                            const rectY = y1 * scaleY;
+                            const rectW = (x2 - x1) * scaleX;
+                            const rectH = (y2 - y1) * scaleY;
+                            
+                            ctx.strokeStyle = '#00ff00';
+                            ctx.lineWidth = 2;
+                            ctx.strokeRect(rectX, rectY, rectW, rectH);
+                            
+                            ctx.fillStyle = '#00ff00';
+                            ctx.font = '14px Arial';
+                            ctx.fillText(`Person ${conf.toFixed(2)}`, rectX, Math.max(rectY - 5, 15));
+                        });
+                    }
+                };
+                
+                if (videoEl.complete) {
+                    drawBoxes();
+                } else {
+                    videoEl.onload = drawBoxes;
+                }
+            } else if (canvasEl) {
+                canvasEl.classList.add('hidden');
+            }
         }
     }
 }

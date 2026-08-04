@@ -120,7 +120,7 @@ async def handle_esp32_client(websocket, esp32_id):
             # First perform preliminary classification to get crowd status for frame header
             # 1. Run YOLOv8 detection in a separate thread to prevent blocking the asyncio event loop
             loop = asyncio.get_running_loop()
-            person_count, avg_conf, persons, annotated_jpeg = await loop.run_in_executor(
+            person_count, avg_conf, persons, annotated_jpeg, latency_ms = await loop.run_in_executor(
                 None,
                 lambda: detector.process_frame(image_bytes, draw_overlay=True)
             )
@@ -158,7 +158,8 @@ async def handle_esp32_client(websocket, esp32_id):
                 "status": crowd_status,
                 "confidence_rata2": round(avg_conf, 2),
                 "deteksi_detail": persons,
-                "frame_b64": annotated_b64
+                "frame_b64": annotated_b64,
+                "latensi": round(latency_ms, 1)
             }
 
             # 5. Broadcast real-time update to all active Web Dashboards

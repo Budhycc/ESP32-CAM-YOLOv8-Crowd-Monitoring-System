@@ -83,35 +83,19 @@ class ObjectDetector:
                 })
                 confidences.append(conf)
 
-                if draw_overlay:
-                    # Draw bounding box for person
-                    cv2.rectangle(frame, (x1, y1), (x2, y2), (0, 255, 0), 2)
-                    label = f"Person {conf:.2f}"
-                    cv2.putText(frame, label, (x1, max(y1 - 10, 15)),
-                                cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 255, 0), 2)
-
         person_count = len(detected_persons)
         avg_confidence = float(np.mean(confidences)) if confidences else 0.0
 
-        # 4. Draw Header Overlay (Count & Crowd Status) if requested
-        if draw_overlay:
-            # Header background bar
-            h, w, _ = frame.shape
-            cv2.rectangle(frame, (0, 0), (w, 40), (20, 20, 20), -1)
-            
-            # Color code status
-            status_colors = {
-                "Sepi": (0, 255, 0),     # Green
-                "Sedang": (0, 215, 255),  # Yellow/Orange
-                "Ramai": (0, 0, 255)     # Red
-            }
-            badge_color = status_colors.get(crowd_status, (255, 255, 255))
+        # Just in case draw_overlay is false and latency_ms is unbound
+        if 'latency_ms' not in locals():
+            latency_ms = results.speed['preprocess'] + results.speed['inference'] + results.speed['postprocess']
 
-            text = f"Terdeteksi: {person_count} Orang | Status: {crowd_status}"
-            cv2.putText(frame, text, (15, 26), cv2.FONT_HERSHEY_SIMPLEX, 0.7, badge_color, 2)
-
-        # 5. Encode annotated image back to JPEG bytes
+        # 5. Encode clean image back to JPEG bytes
         success, encoded_jpeg = cv2.imencode('.jpg', frame, [cv2.IMWRITE_JPEG_QUALITY, 80])
         annotated_bytes = encoded_jpeg.tobytes() if success else None
 
-        return person_count, avg_confidence, detected_persons, annotated_bytes
+        # Just in case draw_overlay is false and latency_ms is unbound
+        if 'latency_ms' not in locals():
+            latency_ms = results.speed['preprocess'] + results.speed['inference'] + results.speed['postprocess']
+
+        return person_count, avg_confidence, detected_persons, annotated_bytes, latency_ms
