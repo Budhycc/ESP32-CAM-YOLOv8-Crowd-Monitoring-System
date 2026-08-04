@@ -352,10 +352,13 @@ function ensureCameraCard(camId, data) {
         <div class="camera-card glass-panel fade-in" id="card-${camId}">
             <div class="panel-header">
                 <h2><i class='bx bx-broadcast'></i> Live Feed</h2>
-                <span class="badge" id="camera-id-${camId}">${camId}</span>
+                <div style="display: flex; gap: 10px; align-items: center;">
+                    <button class="btn-icon" onclick="toggleFullscreen('${camId}')" title="Full Screen"><i class='bx bx-fullscreen'></i></button>
+                    <span class="badge" id="camera-id-${camId}">${camId}</span>
+                </div>
             </div>
             
-            <div class="feed-container" style="position: relative;">
+            <div class="feed-container" id="feed-container-${camId}" style="position: relative;">
                 <img id="video-feed-${camId}" src="" alt="Waiting for stream..." class="hidden" style="width: 100%; height: auto; display: block;">
                 <canvas id="bbox-canvas-${camId}" class="hidden" style="position: absolute; top: 0; left: 0; width: 100%; height: 100%; pointer-events: none;"></canvas>
                 <div id="feed-placeholder-${camId}" class="placeholder">
@@ -369,6 +372,7 @@ function ensureCameraCard(camId, data) {
                     <span id="timestamp-${camId}"><i class='bx bx-time-five'></i> --:--:--</span>
                     <span id="fps-${camId}"><i class='bx bx-tachometer'></i> 0 FPS</span>
                     <span id="latency-${camId}"><i class='bx bx-stopwatch'></i> -- ms</span>
+                    <span id="resolution-${camId}"><i class='bx bx-expand'></i> --x--</span>
                 </div>
                 <div>
                     <label style="display: flex; align-items: center; cursor: pointer; font-size: 0.8rem; gap: 5px; color: var(--text-secondary);">
@@ -457,17 +461,22 @@ function updateCameraUI(camId, data) {
             videoEl.classList.remove('hidden');
             phEl.classList.add('hidden');
             
-            // Draw Bounding Boxes on Canvas
-            if (canvasEl && state.showBbox) {
-                canvasEl.classList.remove('hidden');
-                const ctx = canvasEl.getContext('2d');
+            const handleImageLoad = () => {
+                if (!videoEl.naturalWidth) return;
                 
-                const drawBoxes = () => {
+                // Update resolution text
+                const resEl = document.getElementById(`resolution-${camId}`);
+                if (resEl) {
+                    resEl.innerHTML = `<i class='bx bx-expand'></i> ${videoEl.naturalWidth}x${videoEl.naturalHeight}`;
+                }
+                
+                // Draw Bounding Boxes on Canvas
+                if (canvasEl && state.showBbox) {
+                    canvasEl.classList.remove('hidden');
+                    const ctx = canvasEl.getContext('2d');
                     canvasEl.width = videoEl.clientWidth;
                     canvasEl.height = videoEl.clientHeight;
                     ctx.clearRect(0, 0, canvasEl.width, canvasEl.height);
-                    
-                    if (!videoEl.naturalWidth) return;
                     
                     const scaleX = canvasEl.width / videoEl.naturalWidth;
                     const scaleY = canvasEl.height / videoEl.naturalHeight;
@@ -491,15 +500,15 @@ function updateCameraUI(camId, data) {
                             ctx.fillText(`Person ${conf.toFixed(2)}`, rectX, Math.max(rectY - 5, 15));
                         });
                     }
-                };
-                
-                if (videoEl.complete) {
-                    drawBoxes();
-                } else {
-                    videoEl.onload = drawBoxes;
+                } else if (canvasEl) {
+                    canvasEl.classList.add('hidden');
                 }
-            } else if (canvasEl) {
-                canvasEl.classList.add('hidden');
+            };
+            
+            if (videoEl.complete) {
+                handleImageLoad();
+            } else {
+                videoEl.onload = handleImageLoad;
             }
         }
     }
@@ -591,9 +600,10 @@ function downloadHistoryReport() {
         csvContent += `${time},${camId},${count},${status},${capacity}\n`;
     });
     
-    const encodedUri = encodeURI(csvContent);
+    const csvBlob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+    const url = URL.createObjectURL(csvBlob);
     const link = document.createElement("a");
-    link.setAttribute("href", encodedUri);
+    link.setAttribute("href", url);
     
     const dateStr = new Date().toISOString().split('T')[0];
     link.setAttribute("download", `Laporan_Keramaian_${dateStr}.csv`);
@@ -601,6 +611,7 @@ function downloadHistoryReport() {
     document.body.appendChild(link);
     link.click();
     document.body.removeChild(link);
+    URL.revokeObjectURL(url);
 }
 
 function renderFullHistoryReport() {
@@ -639,3 +650,29 @@ function renderFullHistoryReport() {
 }
 
 window.onload = init;
+
+// ==========================================
+// Fullscreen Management
+// ==========================================
+function toggleFullscreen(camId) {
+    const container = document.getElementById(`card-${camId}`);
+    if (!container) return;
+
+    if (!document.fullscreenElement && !document.webkitFullscreenElement && !document.msFullscreenElement) {
+        if (container.requestFullscreen) {
+            container.requestFullscreen();
+        } else if (container.webkitRequestFullscreen) { /* Safari */
+            container.webkitRequestFullscreen();
+        } else if (container.msRequestFullscreen) { /* IE11 */
+            container.msRequestFullscreen();
+        }
+    } else {
+        if (document.exitFullscreen) {
+            document.exitFullscreen();
+        } else if (document.webkitExitFullscreen) { /* Safari */
+            document.webkitExitFullscreen();
+        } else if (document.msExitFullscreen) { /* IE11 */
+            document.msExitFullscreen();
+        }
+    }
+}

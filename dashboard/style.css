@@ -245,7 +245,7 @@ header {
 
 .cameras-grid {
     display: grid;
-    grid-template-columns: repeat(auto-fit, minmax(450px, 1fr));
+    grid-template-columns: repeat(auto-fill, minmax(450px, 1fr));
     gap: 2rem;
     align-content: start;
 }
@@ -292,6 +292,29 @@ header {
     min-height: 350px;
     border: 1px solid rgba(255,255,255,0.03);
     box-shadow: inset 0 0 40px rgba(0,0,0,0.8);
+}
+
+.camera-card:fullscreen {
+    border-radius: 0;
+    border: none;
+    background-color: var(--bg-main);
+    width: 100vw;
+    height: 100vh;
+    overflow-y: auto;
+}
+
+.camera-card:fullscreen .feed-container {
+    flex-grow: 1;
+    min-height: 0;
+}
+
+.camera-card:fullscreen .feed-container img,
+.camera-card:fullscreen .feed-container canvas {
+    max-height: 100%;
+    width: auto !important;
+    height: 100% !important;
+    object-fit: contain;
+    margin: auto;
 }
 
 #video-feed {
