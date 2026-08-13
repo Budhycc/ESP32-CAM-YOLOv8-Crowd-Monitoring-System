@@ -28,7 +28,9 @@ Bertugas sebagai pengambil gambar (kamera) yang pintar. Ia hanya akan mengirimka
 3. Upload kode ke board ESP32-CAM Anda.
 4. **Konfigurasi WiFi Pintar (WiFiManager):** Setelah menyala, jika ESP32-CAM belum terhubung ke jaringan, ia akan memancarkan WiFi *Access Point* bernama `ESP32-CAM-SETUP`. Hubungkan HP/Laptop Anda ke WiFi tersebut dan ikuti instruksi di layar (Captive Portal) untuk memasukkan SSID dan Password jaringan rumah Anda.
 5. **Auto-Discovery Server:** ESP32-CAM akan secara otomatis mencari alamat IP Server Python di jaringan lokal melalui UDP (Port 9876). Anda tidak perlu lagi men-setting IP server secara manual.
-6. **Reset Konfigurasi WiFi:** Jika Anda memindahkan perangkat ke jaringan WiFi baru, buka **Serial Monitor** (baud rate 115200), lalu ketik perintah `RESET_WIFI` dan tekan Enter/Send. Kredensial lama akan terhapus dan ESP32-CAM akan restart ke mode Setup.
+6. **Reset Konfigurasi WiFi:** Jika Anda memindahkan perangkat ke jaringan WiFi baru, Anda bisa mereset konfigurasi WiFi dengan dua cara:
+   - **Tombol BOOT:** Tekan dan tahan tombol **BOOT** (GPIO 0) selama **5 detik**. Serial Monitor akan menampilkan hitungan mundur dan ESP32 akan otomatis mereset WiFi & restart.
+   - **Serial Command:** Buka **Serial Monitor** (baud rate 115200), lalu ketik perintah `RESET_WIFI` dan tekan Enter/Send. Kredensial lama akan terhapus dan ESP32-CAM akan restart ke mode Setup.
 
 ---
 

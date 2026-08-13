@@ -20,6 +20,12 @@ bool isStreaming = false;
 unsigned long lastCaptureTime = 0;
 const int captureInterval = 500; // Interval ambil gambar saat ada gerakan (dalam ms)
 
+// BOOT Button Configuration (Reset WiFi)
+const int bootButtonPin = 0;       // Pin tombol BOOT (GPIO 0)
+unsigned long bootPressStartTime = 0;
+bool bootButtonPressed = false;
+int lastHoldSecond = 0;
+
 // ==========================================
 // CAMERA PINS (AI-THINKER ESP32-CAM)
 // ==========================================
@@ -154,6 +160,10 @@ void setup() {
   pinMode(pirPin, INPUT);
   Serial.println("PIR Sensor Initialized.");
 
+  // Setup BOOT Button
+  pinMode(bootButtonPin, INPUT_PULLUP);
+  Serial.println("BOOT Button Initialized (Hold 5s to reset WiFi).");
+
   // Setup WiFiManager
   WiFiManager wm;
   Serial.println("Connecting to WiFi or starting AP: ESP32-CAM-SETUP");
@@ -221,6 +231,35 @@ void loop() {
       Serial.println("WiFi configuration reset. Restarting...");
       delay(1000);
       ESP.restart();
+    }
+  }
+
+  // Check for BOOT button hold (5 seconds to reset WiFi)
+  if (digitalRead(bootButtonPin) == LOW) {
+    if (!bootButtonPressed) {
+      bootButtonPressed = true;
+      bootPressStartTime = millis();
+      lastHoldSecond = 0;
+    } else {
+      unsigned long elapsed = millis() - bootPressStartTime;
+      int currentSecond = elapsed / 1000;
+      if (currentSecond > lastHoldSecond && currentSecond <= 5) {
+        lastHoldSecond = currentSecond;
+        Serial.printf("Tombol BOOT ditekan... %d/5 detik\n", currentSecond);
+      }
+      if (elapsed >= 5000) {
+        Serial.println("\n[RESET] Tombol BOOT ditahan 5 detik! Mereset konfigurasi WiFi...");
+        WiFiManager wm;
+        wm.resetSettings();
+        Serial.println("Konfigurasi WiFi berhasil di-reset. Restarting ESP32...");
+        delay(1000);
+        ESP.restart();
+      }
+    }
+  } else {
+    if (bootButtonPressed) {
+      bootButtonPressed = false;
+      lastHoldSecond = 0;
     }
   }
 
