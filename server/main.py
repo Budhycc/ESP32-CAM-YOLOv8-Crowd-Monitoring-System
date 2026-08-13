@@ -93,8 +93,15 @@ async def handle_esp32_client(websocket, esp32_id):
     active_esps.add(esp32_id)
     esp32_websockets[esp32_id] = websocket
     
-    # Apply saved resolution from database immediately
+    # Apply saved resolution & FPS from database immediately (Default FPS = 0 for Dynamic/Max speed)
     room_info = next((r for r in active_rooms_cache if r.get('esp32_id') == esp32_id), None)
+    target_fps = room_info.get('fps', 0) if (room_info and room_info.get('fps') is not None) else 0
+    try:
+        await websocket.send(f"SET_FPS:{target_fps}")
+        logger.info(f"Sent initial FPS setting ({target_fps}) to {esp32_id}")
+    except Exception as e:
+        logger.error(f"Failed to send initial FPS to {esp32_id}: {e}")
+
     if room_info and room_info.get('resolution') and room_info.get('resolution') != 'VGA':
         try:
             await websocket.send(f"SET_RESOLUTION:{room_info['resolution']}")
@@ -106,8 +113,25 @@ async def handle_esp32_client(websocket, esp32_id):
         "active_esps": list(active_esps)
     })
 
-    try:
-        async for message in websocket:
+    # Decoupled Non-Blocking Frame Processing Pipeline (Zero Latency & No Backpressure)
+    latest_frame = None
+    frame_event = asyncio.Event()
+    is_active = True
+
+    async def frame_processor():
+        nonlocal latest_frame, frame_counter, last_person_time, last_frame_time
+        loop = asyncio.get_running_loop()
+        
+        while is_active:
+            await frame_event.wait()
+            frame_event.clear()
+            
+            if latest_frame is None:
+                continue
+                
+            raw_msg = latest_frame
+            latest_frame = None
+            
             now = time.time()
             if now - last_frame_time > 5.0:
                 # Kamera baru bangun dari mode sleep
@@ -125,25 +149,23 @@ async def handle_esp32_client(websocket, esp32_id):
             frame_counter += 1
             
             # ESP32-CAM sends binary JPEG data
-            if isinstance(message, bytes):
-                image_bytes = message
+            if isinstance(raw_msg, bytes):
+                image_bytes = raw_msg
             else:
                 # If frame is sent as base64 string
                 try:
-                    image_bytes = base64.b64decode(message)
+                    image_bytes = base64.b64decode(raw_msg)
                 except Exception:
                     logger.warning("Received invalid text data from ESP32-CAM, expected binary JPEG or base64.")
                     continue
 
-            # First perform preliminary classification to get crowd status for frame header
-            # 1. Run YOLOv8 detection in a separate thread to prevent blocking the asyncio event loop
-            loop = asyncio.get_running_loop()
+            # Run YOLOv8 detection in executor thread
             person_count, avg_conf, persons, annotated_jpeg, latency_ms = await loop.run_in_executor(
                 None,
                 lambda: detector.process_frame(image_bytes, draw_overlay=True)
             )
 
-            # 2. Perform Crowd Density Classification
+            # Perform Crowd Density Classification
             classification = classify_crowd(person_count, current_capacity)
             crowd_status = classification["status"]
 
@@ -163,7 +185,7 @@ async def handle_esp32_client(websocket, esp32_id):
                     logger.error(f"Gagal mengirim SLEEP: {e}")
                 last_person_time = now # reset timer agar tidak spam
 
-            # 3. Save detection record to SQLite database
+            # Save detection record to SQLite database
             await loop.run_in_executor(
                 None,
                 lambda: save_detection(
@@ -174,7 +196,7 @@ async def handle_esp32_client(websocket, esp32_id):
                 )
             )
 
-            # 4. Prepare data payload for Web Dashboard
+            # Prepare data payload for Web Dashboard
             timestamp_str = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
             annotated_b64 = base64.b64encode(annotated_jpeg).decode('utf-8') if annotated_jpeg else ""
 
@@ -193,8 +215,15 @@ async def handle_esp32_client(websocket, esp32_id):
                 "latensi": round(latency_ms, 1)
             }
 
-            # 5. Broadcast real-time update to all active Web Dashboards
+            # Broadcast real-time update to all active Web Dashboards
             await broadcast_to_dashboards(payload)
+
+    processor_task = asyncio.create_task(frame_processor())
+
+    try:
+        async for message in websocket:
+            latest_frame = message
+            frame_event.set()
 
     except websockets.exceptions.ConnectionClosedError:
         logger.info("ESP32-CAM connection closed unexpectedly.")
@@ -203,6 +232,9 @@ async def handle_esp32_client(websocket, esp32_id):
     except Exception as e:
         logger.error(f"Error handling ESP32-CAM stream: {e}", exc_info=True)
     finally:
+        is_active = False
+        frame_event.set()
+        processor_task.cancel()
         active_esps.discard(esp32_id)
         esp32_websockets.pop(esp32_id, None)
         await broadcast_to_dashboards({
@@ -287,13 +319,35 @@ async def handle_dashboard_client(websocket):
                         except Exception as e:
                             logger.error(f"Failed to send resolution: {e}")
                             
+                elif req.get("action") == "set_fps":
+                    esp32_id = req.get("esp32_id")
+                    fps_val = req.get("fps", 2)
+                    room_id = req.get("room_id")
+                    
+                    if room_id:
+                        room = next((r for r in active_rooms_cache if r.get('room_id') == room_id), None)
+                        if room:
+                            update_room_ui_settings(room_id, fps=fps_val)
+                            active_rooms_cache = get_all_rooms()
+
+                    if esp32_id and esp32_id in esp32_websockets:
+                        try:
+                            await esp32_websockets[esp32_id].send(f"SET_FPS:{fps_val}")
+                            logger.info(f"Sent target FPS {fps_val} to {esp32_id}")
+                        except Exception as e:
+                            logger.error(f"Failed to send FPS: {e}")
+                            
+                    await broadcast_to_dashboards({
+                        "type": "room_config_update",
+                        "rooms": active_rooms_cache
+                    })
                 elif req.get("action") == "update_bbox":
                     room_id = req.get("room_id")
                     show_bbox = req.get("show_bbox")
                     if room_id:
                         room = next((r for r in active_rooms_cache if r.get('room_id') == room_id), None)
                         if room:
-                            update_room_ui_settings(room_id, room.get('resolution', 'VGA'), show_bbox)
+                            update_room_ui_settings(room_id, show_bbox=show_bbox)
                             active_rooms_cache = get_all_rooms()
             except Exception as e:
                 logger.error(f"Error parsing dashboard client request: {e}")

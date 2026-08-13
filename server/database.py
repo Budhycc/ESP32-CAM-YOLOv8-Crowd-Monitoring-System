@@ -44,6 +44,11 @@ def init_db():
         except sqlite3.OperationalError:
             pass
 
+        try:
+            cursor.execute('ALTER TABLE rooms ADD COLUMN fps INTEGER DEFAULT 0')
+        except sqlite3.OperationalError:
+            pass
+
         # Seed defaults if empty
         cursor.execute('SELECT COUNT(*) FROM rooms')
         if cursor.fetchone()[0] == 0:
@@ -98,7 +103,7 @@ def get_all_rooms():
     """Retrieves all room configurations."""
     with get_connection() as conn:
         cursor = conn.cursor()
-        cursor.execute('SELECT room_id, capacity, esp32_id, resolution, show_bbox FROM rooms ORDER BY room_id')
+        cursor.execute('SELECT room_id, capacity, esp32_id, resolution, show_bbox, fps FROM rooms ORDER BY room_id')
         rows = cursor.fetchall()
         return [dict(row) for row in rows]
 
@@ -129,18 +134,22 @@ def upsert_room(room_id: str, capacity: int, esp32_id: str = None):
             cursor.execute('UPDATE rooms SET esp32_id = NULL WHERE esp32_id = ? AND room_id != ?', (esp32_id, room_id))
             
         cursor.execute('''
-            INSERT INTO rooms (room_id, capacity, esp32_id, resolution, show_bbox)
-            VALUES (?, ?, ?, "VGA", 1)
+            INSERT INTO rooms (room_id, capacity, esp32_id, resolution, show_bbox, fps)
+            VALUES (?, ?, ?, "VGA", 1, 0)
             ON CONFLICT(room_id) DO UPDATE SET capacity=excluded.capacity, esp32_id=excluded.esp32_id
         ''', (room_id, capacity, esp32_id))
         conn.commit()
 
-def update_room_ui_settings(room_id: str, resolution: str, show_bbox: bool):
+def update_room_ui_settings(room_id: str, resolution: str = None, show_bbox: bool = None, fps: int = None):
     """Updates the UI preferences for a room."""
     with get_connection() as conn:
         cursor = conn.cursor()
-        cursor.execute('UPDATE rooms SET resolution = ?, show_bbox = ? WHERE room_id = ?', 
-                      (resolution, 1 if show_bbox else 0, room_id))
+        if resolution is not None:
+            cursor.execute('UPDATE rooms SET resolution = ? WHERE room_id = ?', (resolution, room_id))
+        if show_bbox is not None:
+            cursor.execute('UPDATE rooms SET show_bbox = ? WHERE room_id = ?', (1 if show_bbox else 0, room_id))
+        if fps is not None:
+            cursor.execute('UPDATE rooms SET fps = ? WHERE room_id = ?', (fps, room_id))
         conn.commit()
 
 def delete_room(room_id: str):

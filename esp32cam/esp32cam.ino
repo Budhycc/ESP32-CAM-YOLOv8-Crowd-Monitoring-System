@@ -20,8 +20,8 @@ const int pirPin =
 bool motionDetected = false;
 bool isStreaming = false;
 unsigned long lastCaptureTime = 0;
-const int captureInterval =
-    500; // Interval ambil gambar saat ada gerakan (dalam ms)
+int captureInterval =
+    0; // Default: 0 = Dinamis (Tanpa Delay / Max FPS)
 
 // BOOT Button Configuration (Reset WiFi)
 const bool enableBootReset =
@@ -97,6 +97,17 @@ void webSocketEvent(WStype_t type, uint8_t *payload, size_t length) {
       String resStr = msg.substring(15);
       resStr.trim();
       setResolution(resStr);
+    } else if (msg.startsWith("SET_FPS:")) {
+      String fpsStr = msg.substring(8);
+      fpsStr.trim();
+      int fpsVal = fpsStr.toInt();
+      if (fpsVal <= 0) {
+        captureInterval = 0; // Mode Dinamis / Maksimal (Tanpa Delay)
+        Serial.println("[WebSocket] FPS set to Dynamic / Max (captureInterval = 0 ms)");
+      } else {
+        captureInterval = 1000 / fpsVal;
+        Serial.printf("[WebSocket] FPS set to %d (captureInterval = %d ms)\n", fpsVal, captureInterval);
+      }
     } else if (msg == "SLEEP") {
       Serial.println(
           "Perintah SLEEP dari server diterima. Menghentikan streaming.");
@@ -141,14 +152,15 @@ void setupCamera() {
 
   // Sesuaikan resolusi, untuk koneksi lancar disarankan QVGA, VGA, atau SVGA
   if (psramFound()) {
-    config.frame_size =
-        FRAMESIZE_VGA; // FRAMESIZE_VGA (640x480), FRAMESIZE_SVGA (800x600)
-    config.jpeg_quality = 12;
-    config.fb_count = 2;
-  } else {
     config.frame_size = FRAMESIZE_VGA;
-    config.jpeg_quality = 12;
+    config.jpeg_quality = 14; // Balance antara kualitas & kecepatan transfer WiFi
+    config.fb_count = 2;
+    config.grab_mode = CAMERA_GRAB_LATEST; // Selalu ambil frame terbaru (Low Latency)
+  } else {
+    config.frame_size = FRAMESIZE_QVGA; // Non-PSRAM fallback ke QVGA agar lancar
+    config.jpeg_quality = 14;
     config.fb_count = 1;
+    config.grab_mode = CAMERA_GRAB_LATEST;
   }
 
   // Inisialisasi Kamera
@@ -308,7 +320,7 @@ void loop() {
   // Kirim gambar ke server setiap interval (e.g. 500ms) selama status streaming
   // aktif
   if (isStreaming) {
-    if (millis() - lastCaptureTime > captureInterval) {
+    if (captureInterval == 0 || millis() - lastCaptureTime > captureInterval) {
       sendCameraFrame();
       lastCaptureTime = millis();
     }
@@ -318,6 +330,7 @@ void loop() {
 void sendCameraFrame() {
   // Hanya mengirim jika websocket terhubung
   if (webSocket.isConnected()) {
+    webSocket.loop(); // Pastikan event & ACK WebSocket diproses sebelum capture
     camera_fb_t *fb = esp_camera_fb_get();
     if (!fb) {
       Serial.println("Camera capture failed");
@@ -326,7 +339,7 @@ void sendCameraFrame() {
 
     // Kirim frame JPEG ke server dalam bentuk binary
     webSocket.sendBIN(fb->buf, fb->len);
-    Serial.printf("Frame terkirim: %u bytes\n", fb->len);
+    // Serial.printf("Frame terkirim: %u bytes\n", fb->len); // Commented to prevent UART serial delay
 
     esp_camera_fb_return(fb);
   }

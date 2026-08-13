@@ -365,15 +365,19 @@ function ensureCameraCard(camId, data) {
     const room = currentRooms.find(r => r.room_id === camId);
     let savedBbox = true;
     let savedRes = 'VGA';
+    let savedFps = 0;
     
     if (room) {
         if (room.show_bbox !== undefined) savedBbox = (room.show_bbox === 1 || room.show_bbox === true);
         if (room.resolution) savedRes = room.resolution;
+        if (room.fps !== undefined && room.fps !== null) savedFps = room.fps;
     } else {
         const lsBbox = localStorage.getItem(`bbox-${camId}`);
         const lsRes = localStorage.getItem(`res-${camId}`);
+        const lsFps = localStorage.getItem(`fps-${camId}`);
         savedBbox = lsBbox !== null ? lsBbox === 'true' : true;
         savedRes = lsRes || 'VGA';
+        savedFps = lsFps !== null ? parseInt(lsFps) : 0;
     }
 
     // Initialize state
@@ -414,17 +418,28 @@ function ensureCameraCard(camId, data) {
                     <span id="latency-${camId}"><i class='bx bx-stopwatch'></i> -- ms</span>
                     <span id="resolution-${camId}"><i class='bx bx-expand'></i> --x--</span>
                 </div>
-                <div>
-                    <label style="display: flex; align-items: center; cursor: pointer; font-size: 0.8rem; gap: 5px; color: var(--text-secondary); margin-bottom: 5px;">
+                <div style="display: flex; flex-direction: column; align-items: flex-end; gap: 4px;">
+                    <label style="display: flex; align-items: center; cursor: pointer; font-size: 0.8rem; gap: 5px; color: var(--text-secondary);">
                         <input type="checkbox" id="toggle-bbox-${camId}" ${cameraState[camId].showBbox ? 'checked' : ''} onchange="cameraState['${camId}'].showBbox = this.checked; updateBboxSetting('${camId}', this.checked);"> Tampilkan Box
                     </label>
-                    <select id="res-select-${camId}" onchange="changeResolution('${camId}', this.value)" style="font-size: 0.8rem; padding: 2px 5px; background: rgba(255,255,255,0.1); border: 1px solid rgba(255,255,255,0.2); color: white; border-radius: 4px; outline: none; cursor: pointer;">
-                        <option style="color: black" value="QVGA" ${savedRes === 'QVGA' ? 'selected' : ''}>QVGA (320x240)</option>
-                        <option style="color: black" value="VGA" ${savedRes === 'VGA' ? 'selected' : ''}>VGA (640x480)</option>
-                        <option style="color: black" value="SVGA" ${savedRes === 'SVGA' ? 'selected' : ''}>SVGA (800x600)</option>
-                        <option style="color: black" value="XGA" ${savedRes === 'XGA' ? 'selected' : ''}>XGA (1024x768)</option>
-                        <option style="color: black" value="HD" ${savedRes === 'HD' ? 'selected' : ''}>HD (1280x720)</option>
-                    </select>
+                    <div style="display: flex; gap: 5px; flex-wrap: wrap;">
+                        <select id="res-select-${camId}" onchange="changeResolution('${camId}', this.value)" style="font-size: 0.8rem; padding: 2px 5px; background: rgba(255,255,255,0.1); border: 1px solid rgba(255,255,255,0.2); color: white; border-radius: 4px; outline: none; cursor: pointer;">
+                            <option style="color: black" value="QVGA" ${savedRes === 'QVGA' ? 'selected' : ''}>QVGA (320x240)</option>
+                            <option style="color: black" value="VGA" ${savedRes === 'VGA' ? 'selected' : ''}>VGA (640x480)</option>
+                            <option style="color: black" value="SVGA" ${savedRes === 'SVGA' ? 'selected' : ''}>SVGA (800x600)</option>
+                            <option style="color: black" value="XGA" ${savedRes === 'XGA' ? 'selected' : ''}>XGA (1024x768)</option>
+                            <option style="color: black" value="HD" ${savedRes === 'HD' ? 'selected' : ''}>HD (1280x720)</option>
+                        </select>
+                        <select id="fps-select-${camId}" onchange="changeFps('${camId}', this.value)" style="font-size: 0.8rem; padding: 2px 5px; background: rgba(255,255,255,0.1); border: 1px solid rgba(255,255,255,0.2); color: white; border-radius: 4px; outline: none; cursor: pointer;">
+                            <option style="color: black" value="0" ${savedFps === 0 ? 'selected' : ''}>⚡ Dinamis (Max)</option>
+                            <option style="color: black" value="2" ${savedFps === 2 ? 'selected' : ''}>2 FPS</option>
+                            <option style="color: black" value="5" ${savedFps === 5 ? 'selected' : ''}>5 FPS</option>
+                            <option style="color: black" value="10" ${savedFps === 10 ? 'selected' : ''}>10 FPS</option>
+                            <option style="color: black" value="15" ${savedFps === 15 ? 'selected' : ''}>15 FPS</option>
+                            <option style="color: black" value="20" ${savedFps === 20 ? 'selected' : ''}>20 FPS</option>
+                            <option style="color: black" value="25" ${savedFps === 25 ? 'selected' : ''}>25 FPS</option>
+                        </select>
+                    </div>
                 </div>
             </div>
 
@@ -735,6 +750,31 @@ window.changeResolution = function(roomId, res) {
         console.log(`Sent resolution change: ${res} for Room: ${roomId}, ESP32: ${esp32Id}`);
     } else {
         alert("Cannot change resolution: Not connected to server.");
+    }
+}
+
+window.changeFps = function(roomId, fpsVal) {
+    const parsedFps = parseInt(fpsVal);
+    localStorage.setItem(`fps-${roomId}`, parsedFps);
+    const room = currentRooms.find(r => r.room_id === roomId);
+    let esp32Id = room ? room.esp32_id : null;
+    
+    if (roomId.startsWith("Unassigned (")) {
+        esp32Id = roomId.slice(12, -1);
+    }
+
+    if (ws && ws.readyState === WebSocket.OPEN) {
+        const payload = {
+            action: 'set_fps',
+            room_id: roomId,
+            fps: parsedFps
+        };
+        if (esp32Id) payload.esp32_id = esp32Id;
+        
+        ws.send(JSON.stringify(payload));
+        console.log(`Sent FPS change: ${parsedFps} for Room: ${roomId}, ESP32: ${esp32Id}`);
+    } else {
+        alert("Cannot change FPS: Not connected to server.");
     }
 }
 

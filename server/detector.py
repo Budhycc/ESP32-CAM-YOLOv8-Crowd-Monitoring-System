@@ -86,16 +86,7 @@ class ObjectDetector:
         person_count = len(detected_persons)
         avg_confidence = float(np.mean(confidences)) if confidences else 0.0
 
-        # Just in case draw_overlay is false and latency_ms is unbound
-        if 'latency_ms' not in locals():
-            latency_ms = results.speed['preprocess'] + results.speed['inference'] + results.speed['postprocess']
+        latency_ms = results.speed['preprocess'] + results.speed['inference'] + results.speed['postprocess']
 
-        # 5. Encode clean image back to JPEG bytes
-        success, encoded_jpeg = cv2.imencode('.jpg', frame, [cv2.IMWRITE_JPEG_QUALITY, 80])
-        annotated_bytes = encoded_jpeg.tobytes() if success else None
-
-        # Just in case draw_overlay is false and latency_ms is unbound
-        if 'latency_ms' not in locals():
-            latency_ms = results.speed['preprocess'] + results.speed['inference'] + results.speed['postprocess']
-
-        return person_count, avg_confidence, detected_persons, annotated_bytes, latency_ms
+        # Return original image_bytes directly (saves ~15ms CPU re-encoding overhead per frame)
+        return person_count, avg_confidence, detected_persons, image_bytes, latency_ms

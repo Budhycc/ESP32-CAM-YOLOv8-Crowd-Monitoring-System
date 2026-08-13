@@ -68,15 +68,13 @@ async def run_simulator(server_url: str, esp32_id: str, mode: str, fps: int = 5)
             logger.warning("Could not open webcam. Falling back to synthetic image mode.")
             mode = "synthetic"
 
-    delay = 1.0 / fps
+    state = {"is_sleeping": False, "delay": 1.0 / fps}
 
     try:
         async with websockets.connect(server_url) as websocket:
             logger.info("Connected successfully! Starting stream...")
             frame_num = 0
-            
-            state = {"is_sleeping": False}
-            
+
             async def receiver():
                 global current_resolution
                 try:
@@ -90,6 +88,17 @@ async def run_simulator(server_url: str, esp32_id: str, mode: str, fps: int = 5)
                                 elif res == "XGA": current_resolution = (1024, 768)
                                 elif res == "HD": current_resolution = (1280, 720)
                                 logger.info(f"Simulator resolution changed to {res} {current_resolution}")
+                            elif message.startswith("SET_FPS:"):
+                                try:
+                                    f_val = int(message.split(":")[1].strip())
+                                    if f_val <= 0:
+                                        state["delay"] = 0.01
+                                        logger.info("Simulator FPS changed to Dynamic / Max")
+                                    else:
+                                        state["delay"] = 1.0 / f_val
+                                        logger.info(f"Simulator FPS changed to {f_val} FPS (delay={state['delay']:.3f}s)")
+                                except Exception:
+                                    pass
                             elif message == "SLEEP":
                                 logger.info("Received SLEEP command. Simulator entering STANDBY mode.")
                                 state["is_sleeping"] = True
@@ -127,7 +136,7 @@ async def run_simulator(server_url: str, esp32_id: str, mode: str, fps: int = 5)
                 await websocket.send(jpeg_bytes)
                 logger.info(f"Sent frame #{frame_num} ({len(jpeg_bytes)} bytes)")
 
-                await asyncio.sleep(delay)
+                await asyncio.sleep(state["delay"])
 
     except ConnectionRefusedError:
         logger.error(f"Could not connect to server at {server_url}. Is main.py running?")
