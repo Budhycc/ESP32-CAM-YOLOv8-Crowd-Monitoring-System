@@ -71,7 +71,6 @@ async def frame_producer(mode: str, fps: int):
 async def run_camera(server_url: str, esp32_id: str, fps: int):
     """Connects a single camera to the server and sends the latest_frame."""
     global latest_frame
-    delay = 1.0 / fps
     current_resolution = (640, 480)
     
     full_url = f"{server_url}/ws/esp32/{esp32_id}"
@@ -81,7 +80,7 @@ async def run_camera(server_url: str, esp32_id: str, fps: int):
             logger.info(f"[{esp32_id}] Connected to server!")
             frame_num = 0
             
-            state = {"is_sleeping": False}
+            state = {"is_sleeping": False, "delay": 1.0 / fps if fps > 0 else 0.01}
             
             async def receiver():
                 nonlocal current_resolution
@@ -96,6 +95,17 @@ async def run_camera(server_url: str, esp32_id: str, fps: int):
                                 elif res == "XGA": current_resolution = (1024, 768)
                                 elif res == "HD": current_resolution = (1280, 720)
                                 logger.info(f"[{esp32_id}] Resolution changed to {res} {current_resolution}")
+                            elif message.startswith("SET_FPS:"):
+                                try:
+                                    f_val = int(message.split(":")[1].strip())
+                                    if f_val <= 0:
+                                        state["delay"] = 0.01
+                                        logger.info(f"[{esp32_id}] FPS changed to Dynamic / Max")
+                                    else:
+                                        state["delay"] = 1.0 / f_val
+                                        logger.info(f"[{esp32_id}] FPS changed to {f_val} FPS")
+                                except Exception:
+                                    pass
                             elif message == "SLEEP":
                                 logger.info(f"[{esp32_id}] Received SLEEP command. Entering STANDBY mode.")
                                 state["is_sleeping"] = True
@@ -119,7 +129,7 @@ async def run_camera(server_url: str, esp32_id: str, fps: int):
                     frame_num += 1
                     if frame_num % 50 == 0:
                         logger.info(f"[{esp32_id}] Sent {frame_num} frames")
-                await asyncio.sleep(delay)
+                await asyncio.sleep(state["delay"])
                 
     except ConnectionRefusedError:
         logger.error(f"[{esp32_id}] Connection refused at {full_url}")
@@ -176,7 +186,7 @@ if __name__ == "__main__":
     parser.add_argument("--url", type=str, default="auto", help="Base WebSocket URL (e.g., ws://localhost:8765) or 'auto'")
     parser.add_argument("--count", type=int, default=3, help="Number of cameras to simulate")
     parser.add_argument("--mode", type=str, choices=["synthetic", "webcam"], default="webcam", help="Stream source mode")
-    parser.add_argument("--fps", type=int, default=5, help="Frames per second")
+    parser.add_argument("--fps", type=int, default=25, help="Frames per second")
 
     args = parser.parse_args()
     

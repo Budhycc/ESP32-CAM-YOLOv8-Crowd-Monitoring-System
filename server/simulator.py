@@ -154,7 +154,7 @@ if __name__ == "__main__":
     parser.add_argument("--url", type=str, default="auto", help="Server WebSocket URL or 'auto' for UDP discovery")
     parser.add_argument("--id", type=str, default="Sim_Camera", help="Hardware ID for this simulator (used in auto-discovery)")
     parser.add_argument("--mode", type=str, choices=["synthetic", "webcam"], default="synthetic", help="Stream source mode")
-    parser.add_argument("--fps", type=int, default=5, help="Frames per second")
+    parser.add_argument("--fps", type=int, default=25, help="Frames per second")
 
     args = parser.parse_args()
     asyncio.run(run_simulator(args.url, args.id, args.mode, args.fps))
