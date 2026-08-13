@@ -277,18 +277,125 @@ function renderRoomList(rooms) {
         const espText = room.esp32_id ? `<br><small style="color:var(--text-muted)">Mapped to: ${room.esp32_id}</small>` : '';
         const safeEspId = room.esp32_id ? `'${room.esp32_id}'` : 'null';
         const li = document.createElement('li');
+        li.style.flexDirection = 'column';
+        li.style.alignItems = 'stretch';
+        
+        // Default values for new fields
+        const xclk = room.xclk || 20000000;
+        const jpeg = room.jpeg_quality || 20;
+        const fb = room.fb_count || 2;
+        const bri = room.brightness !== undefined ? room.brightness : 1;
+        const con = room.contrast !== undefined ? room.contrast : 1;
+        const sat = room.saturation !== undefined ? room.saturation : -1;
+        const vflip = room.vflip || 0;
+        
         li.innerHTML = `
-            <span><strong>${room.room_id}</strong> (Cap: ${room.capacity})${espText}</span>
-            <div style="display: flex; gap: 0.5rem;">
-                <button class="btn-primary" onclick="editRoom('${room.room_id}', ${room.capacity}, ${safeEspId})" style="padding: 0.3rem 0.8rem; font-size: 0.8rem;">Edit</button>
-                <button class="btn-danger" onclick="deleteRoom('${room.room_id}')" style="padding: 0.3rem 0.8rem; font-size: 0.8rem;">Delete</button>
+            <div style="display: flex; justify-content: space-between; align-items: center; width: 100%;">
+                <span><strong>${room.room_id}</strong> (Cap: ${room.capacity})${espText}</span>
+                <div style="display: flex; gap: 0.5rem;">
+                    <button class="btn-secondary" onclick="toggleAdvConfig('${room.room_id}')" style="padding: 0.3rem 0.8rem; font-size: 0.8rem;" title="Advanced Camera Tuning"><i class='bx bx-slider'></i></button>
+                    <button class="btn-primary" onclick="editRoom('${room.room_id}', ${room.capacity}, ${safeEspId})" style="padding: 0.3rem 0.8rem; font-size: 0.8rem;">Edit</button>
+                    <button class="btn-danger" onclick="deleteRoom('${room.room_id}')" style="padding: 0.3rem 0.8rem; font-size: 0.8rem;">Delete</button>
+                </div>
+            </div>
+            
+            <div id="adv-config-${room.room_id}" class="hidden" style="margin-top: 15px; padding: 15px; background: rgba(0,0,0,0.2); border-radius: 8px; border: 1px solid rgba(255,255,255,0.1);">
+                <h4 style="margin-bottom: 10px; font-size: 0.9rem; color: var(--accent-color);"><i class='bx bx-chip'></i> Advanced Hardware Config (Restarts ESP)</h4>
+                <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-bottom: 15px;">
+                    <div>
+                        <label style="font-size: 0.8rem;">XCLK (MHz)</label>
+                        <select id="adv-xclk-${room.room_id}" class="form-input" style="padding: 5px; font-size: 0.8rem; width: 100%;">
+                            <option value="10000000" ${xclk === 10000000 ? 'selected' : ''}>10 MHz</option>
+                            <option value="20000000" ${xclk === 20000000 ? 'selected' : ''}>20 MHz (Stable)</option>
+                            <option value="24000000" ${xclk === 24000000 ? 'selected' : ''}>24 MHz</option>
+                        </select>
+                    </div>
+                    <div>
+                        <label style="font-size: 0.8rem;">DMA Buffers</label>
+                        <select id="adv-fb-${room.room_id}" class="form-input" style="padding: 5px; font-size: 0.8rem; width: 100%;">
+                            <option value="1" ${fb === 1 ? 'selected' : ''}>1 Buffer (Low RAM)</option>
+                            <option value="2" ${fb === 2 ? 'selected' : ''}>2 Buffers (Smooth)</option>
+                        </select>
+                    </div>
+                </div>
+                
+                <h4 style="margin-bottom: 10px; font-size: 0.9rem; color: var(--status-healthy);"><i class='bx bx-camera'></i> Live Sensor Tuning</h4>
+                <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 10px;">
+                    <div>
+                        <label style="font-size: 0.8rem; display: flex; justify-content: space-between;">JPEG Quality (10-63) <span id="lbl-jpeg-${room.room_id}">${jpeg}</span></label>
+                        <input type="range" id="adv-jpeg-${room.room_id}" min="10" max="63" value="${jpeg}" oninput="document.getElementById('lbl-jpeg-${room.room_id}').innerText = this.value" style="width: 100%;">
+                        <small style="font-size: 0.7rem; color: var(--text-muted);">Smaller = Better Quality</small>
+                    </div>
+                    <div>
+                        <label style="font-size: 0.8rem; display: flex; justify-content: space-between;">Brightness (-2 to 2) <span id="lbl-bri-${room.room_id}">${bri}</span></label>
+                        <input type="range" id="adv-bri-${room.room_id}" min="-2" max="2" value="${bri}" oninput="document.getElementById('lbl-bri-${room.room_id}').innerText = this.value" style="width: 100%;">
+                    </div>
+                    <div>
+                        <label style="font-size: 0.8rem; display: flex; justify-content: space-between;">Contrast (-2 to 2) <span id="lbl-con-${room.room_id}">${con}</span></label>
+                        <input type="range" id="adv-con-${room.room_id}" min="-2" max="2" value="${con}" oninput="document.getElementById('lbl-con-${room.room_id}').innerText = this.value" style="width: 100%;">
+                    </div>
+                    <div>
+                        <label style="font-size: 0.8rem; display: flex; justify-content: space-between;">Saturation (-2 to 2) <span id="lbl-sat-${room.room_id}">${sat}</span></label>
+                        <input type="range" id="adv-sat-${room.room_id}" min="-2" max="2" value="${sat}" oninput="document.getElementById('lbl-sat-${room.room_id}').innerText = this.value" style="width: 100%;">
+                    </div>
+                    <div style="grid-column: span 2;">
+                        <label style="display: flex; align-items: center; gap: 5px; font-size: 0.8rem; cursor: pointer;">
+                            <input type="checkbox" id="adv-vflip-${room.room_id}" ${vflip === 1 ? 'checked' : ''}> Vertical Flip (Upside Down)
+                        </label>
+                    </div>
+                </div>
+                
+                <div style="margin-top: 15px; text-align: right;">
+                    <button class="btn-primary" onclick="saveAdvConfig('${room.room_id}', ${safeEspId})" style="font-size: 0.85rem;"><i class='bx bx-save'></i> Apply & Save</button>
+                </div>
             </div>
         `;
-        li.style.display = 'flex';
-        li.style.justifyContent = 'space-between';
-        li.style.alignItems = 'center';
         els.settingsRoomList.appendChild(li);
     });
+}
+
+window.toggleAdvConfig = function(roomId) {
+    const el = document.getElementById(`adv-config-${roomId}`);
+    if (el) el.classList.toggle('hidden');
+}
+
+window.saveAdvConfig = function(roomId, esp32Id) {
+    if (!ws || ws.readyState !== WebSocket.OPEN) {
+        alert("Not connected to server.");
+        return;
+    }
+    
+    const xclk = parseInt(document.getElementById(`adv-xclk-${roomId}`).value);
+    const fb = parseInt(document.getElementById(`adv-fb-${roomId}`).value);
+    const jpeg = parseInt(document.getElementById(`adv-jpeg-${roomId}`).value);
+    const bri = parseInt(document.getElementById(`adv-bri-${roomId}`).value);
+    const con = parseInt(document.getElementById(`adv-con-${roomId}`).value);
+    const sat = parseInt(document.getElementById(`adv-sat-${roomId}`).value);
+    const vflip = document.getElementById(`adv-vflip-${roomId}`).checked ? 1 : 0;
+    
+    // Warning if changing XCLK or FB
+    const room = currentRooms.find(r => r.room_id === roomId);
+    if (room && (room.xclk !== xclk || room.fb_count !== fb)) {
+        if (!confirm("Changing XCLK or DMA Buffers requires restarting the ESP32-CAM. The camera will briefly disconnect. Continue?")) {
+            return;
+        }
+    }
+    
+    ws.send(JSON.stringify({
+        action: 'update_adv_config',
+        room_id: roomId,
+        esp32_id: esp32Id,
+        xclk: xclk,
+        fb_count: fb,
+        jpeg_quality: jpeg,
+        brightness: bri,
+        contrast: con,
+        saturation: sat,
+        vflip: vflip
+    }));
+    
+    const el = document.getElementById(`adv-config-${roomId}`);
+    if (el) el.classList.add('hidden');
 }
 
 function renderActiveEsps() {

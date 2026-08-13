@@ -3,6 +3,7 @@
 #include <WebSocketsClient.h>
 #include <WiFiManager.h>
 #include <WiFiUdp.h>
+#include <Preferences.h>
 // ==========================================
 // CONFIGURATION
 // ==========================================
@@ -53,6 +54,7 @@ int lastHoldSecond = 0;
 
 WebSocketsClient webSocket;
 WiFiUDP udp;
+Preferences preferences;
 
 void setResolution(String resStr) {
   sensor_t *s = esp_camera_sensor_get();
@@ -112,6 +114,69 @@ void webSocketEvent(WStype_t type, uint8_t *payload, size_t length) {
       Serial.println(
           "Perintah SLEEP dari server diterima. Menghentikan streaming.");
       isStreaming = false;
+    } else if (msg.startsWith("SET_ADV_CONFIG:")) {
+      int nxclk, njpeg, nfb, nbri, ncon, nsat, nvflip;
+      if (sscanf(msg.c_str(), "SET_ADV_CONFIG:%d,%d,%d,%d,%d,%d,%d", &nxclk, &njpeg, &nfb, &nbri, &ncon, &nsat, &nvflip) == 7) {
+        bool needsRestart = false;
+        if (preferences.getInt("xclk", 20000000) != nxclk || preferences.getInt("fb_count", 2) != nfb) {
+          needsRestart = true;
+        }
+        preferences.putInt("xclk", nxclk);
+        preferences.putInt("jpeg_quality", njpeg);
+        preferences.putInt("fb_count", nfb);
+        preferences.putInt("brightness", nbri);
+        preferences.putInt("contrast", ncon);
+        preferences.putInt("saturation", nsat);
+        preferences.putInt("vflip", nvflip);
+        
+        sensor_t *s = esp_camera_sensor_get();
+        if (s) {
+          s->set_quality(s, njpeg);
+          s->set_brightness(s, nbri);
+          s->set_contrast(s, ncon);
+          s->set_saturation(s, nsat);
+          s->set_vflip(s, nvflip);
+        }
+        if (needsRestart) {
+          Serial.println("Core config synced from server. Restarting ESP32...");
+          delay(500);
+          ESP.restart();
+        }
+      }
+    } else if (msg.startsWith("SET_QUALITY:")) {
+      int val = msg.substring(12).toInt();
+      preferences.putInt("jpeg_quality", val);
+      sensor_t *s = esp_camera_sensor_get();
+      if (s) s->set_quality(s, val);
+    } else if (msg.startsWith("SET_BRIGHTNESS:")) {
+      int val = msg.substring(15).toInt();
+      preferences.putInt("brightness", val);
+      sensor_t *s = esp_camera_sensor_get();
+      if (s) s->set_brightness(s, val);
+    } else if (msg.startsWith("SET_CONTRAST:")) {
+      int val = msg.substring(13).toInt();
+      preferences.putInt("contrast", val);
+      sensor_t *s = esp_camera_sensor_get();
+      if (s) s->set_contrast(s, val);
+    } else if (msg.startsWith("SET_SATURATION:")) {
+      int val = msg.substring(15).toInt();
+      preferences.putInt("saturation", val);
+      sensor_t *s = esp_camera_sensor_get();
+      if (s) s->set_saturation(s, val);
+    } else if (msg.startsWith("SET_VFLIP:")) {
+      int val = msg.substring(10).toInt();
+      preferences.putInt("vflip", val);
+      sensor_t *s = esp_camera_sensor_get();
+      if (s) s->set_vflip(s, val);
+    } else if (msg.startsWith("SET_CORE_CONFIG:")) {
+      int nxclk, nfb;
+      if (sscanf(msg.c_str(), "SET_CORE_CONFIG:%d,%d", &nxclk, &nfb) == 2) {
+        preferences.putInt("xclk", nxclk);
+        preferences.putInt("fb_count", nfb);
+        Serial.println("Core config updated. Restarting ESP32...");
+        delay(500);
+        ESP.restart();
+      }
     }
     break;
   }
@@ -147,7 +212,11 @@ void setupCamera() {
   config.pin_sscb_scl = SIOC_GPIO_NUM;
   config.pin_pwdn = PWDN_GPIO_NUM;
   config.pin_reset = RESET_GPIO_NUM;
-  config.xclk_freq_hz = 20000000; // 20MHz: stabil di semua AI Thinker board
+  int pref_xclk = preferences.getInt("xclk", 20000000);
+  int pref_jpeg = preferences.getInt("jpeg_quality", 20);
+  int pref_fb = preferences.getInt("fb_count", 2);
+
+  config.xclk_freq_hz = pref_xclk;
   // CATATAN: 24MHz secara teori lebih cepat, tapi tidak stabil di banyak board AI Thinker
   config.pixel_format = PIXFORMAT_JPEG;
 
@@ -158,12 +227,12 @@ void setupCamera() {
   //   Optimal untuk streaming: 20-25 (balance kecepatan & cukup jelas untuk YOLOv8)
   if (psramFound()) {
     config.frame_size = FRAMESIZE_VGA;
-    config.jpeg_quality = 20; // 20 = file ~10-15KB, cukup jelas untuk deteksi orang
-    config.fb_count = 2;      // 2 DMA buffer: stabil & aman untuk semua board AI Thinker
+    config.jpeg_quality = pref_jpeg;
+    config.fb_count = pref_fb;      // 2 DMA buffer: stabil & aman untuk semua board AI Thinker
     config.grab_mode = CAMERA_GRAB_LATEST; // Selalu ambil frame terbaru (Low Latency)
   } else {
     config.frame_size = FRAMESIZE_QVGA; // Non-PSRAM fallback ke QVGA agar lancar
-    config.jpeg_quality = 20;
+    config.jpeg_quality = pref_jpeg;
     config.fb_count = 1;
     config.grab_mode = CAMERA_GRAB_LATEST;
   }
@@ -181,14 +250,19 @@ void setupCamera() {
   // Hanya gunakan setting yang dijamin ada di semua versi library esp32-camera
   sensor_t *s = esp_camera_sensor_get();
   if (s) {
-    s->set_brightness(s, 1);      // +1: sedikit lebih terang, baik di dalam ruangan
-    s->set_contrast(s, 1);        // +1: kontras lebih baik untuk deteksi orang
-    s->set_saturation(s, -1);     // -1: warna lebih netral, kurangi noise warna
+    int pref_bri = preferences.getInt("brightness", 1);
+    int pref_con = preferences.getInt("contrast", 1);
+    int pref_sat = preferences.getInt("saturation", -1);
+    int pref_vflip = preferences.getInt("vflip", 0);
+    
+    s->set_brightness(s, pref_bri);
+    s->set_contrast(s, pref_con);
+    s->set_saturation(s, pref_sat);
     s->set_aec2(s, true);         // Advanced AEC: auto exposure lebih adaptif
     s->set_awb_gain(s, true);     // Auto White Balance Gain aktif
     s->set_lenc(s, true);         // Lens correction: koreksi distorsi lensa AI Thinker
-    s->set_vflip(s, 0);           // 0=normal, ubah ke 1 jika kamera terpasang terbalik
-    Serial.println("OV2640 sensor tuning applied.");
+    s->set_vflip(s, pref_vflip);
+    Serial.println("OV2640 sensor tuning applied from NVS.");
     delay(300); // Beri waktu sensor stabilisasi sebelum mulai capture
   }
 
@@ -202,6 +276,10 @@ void setup() {
   // Setup PIR Sensor
   pinMode(pirPin, INPUT);
   Serial.println("PIR Sensor Initialized.");
+
+  // Initialize NVS Preferences
+  preferences.begin("cam_config", false);
+  Serial.println("NVS Preferences loaded.");
 
   // Setup BOOT Button (jika diaktifkan)
   if (enableBootReset) {

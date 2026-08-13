@@ -49,6 +49,17 @@ def init_db():
         except sqlite3.OperationalError:
             pass
 
+        try:
+            cursor.execute('ALTER TABLE rooms ADD COLUMN xclk INTEGER DEFAULT 20000000')
+            cursor.execute('ALTER TABLE rooms ADD COLUMN jpeg_quality INTEGER DEFAULT 20')
+            cursor.execute('ALTER TABLE rooms ADD COLUMN fb_count INTEGER DEFAULT 2')
+            cursor.execute('ALTER TABLE rooms ADD COLUMN brightness INTEGER DEFAULT 1')
+            cursor.execute('ALTER TABLE rooms ADD COLUMN contrast INTEGER DEFAULT 1')
+            cursor.execute('ALTER TABLE rooms ADD COLUMN saturation INTEGER DEFAULT -1')
+            cursor.execute('ALTER TABLE rooms ADD COLUMN vflip INTEGER DEFAULT 0')
+        except sqlite3.OperationalError:
+            pass
+
         # Seed defaults if empty
         cursor.execute('SELECT COUNT(*) FROM rooms')
         if cursor.fetchone()[0] == 0:
@@ -103,7 +114,7 @@ def get_all_rooms():
     """Retrieves all room configurations."""
     with get_connection() as conn:
         cursor = conn.cursor()
-        cursor.execute('SELECT room_id, capacity, esp32_id, resolution, show_bbox, fps FROM rooms ORDER BY room_id')
+        cursor.execute('SELECT room_id, capacity, esp32_id, resolution, show_bbox, fps, xclk, jpeg_quality, fb_count, brightness, contrast, saturation, vflip FROM rooms ORDER BY room_id')
         rows = cursor.fetchall()
         return [dict(row) for row in rows]
 
@@ -134,13 +145,15 @@ def upsert_room(room_id: str, capacity: int, esp32_id: str = None):
             cursor.execute('UPDATE rooms SET esp32_id = NULL WHERE esp32_id = ? AND room_id != ?', (esp32_id, room_id))
             
         cursor.execute('''
-            INSERT INTO rooms (room_id, capacity, esp32_id, resolution, show_bbox, fps)
-            VALUES (?, ?, ?, "VGA", 1, 0)
+            INSERT INTO rooms (room_id, capacity, esp32_id, resolution, show_bbox, fps, xclk, jpeg_quality, fb_count, brightness, contrast, saturation, vflip)
+            VALUES (?, ?, ?, "VGA", 1, 0, 20000000, 20, 2, 1, 1, -1, 0)
             ON CONFLICT(room_id) DO UPDATE SET capacity=excluded.capacity, esp32_id=excluded.esp32_id
         ''', (room_id, capacity, esp32_id))
         conn.commit()
 
-def update_room_ui_settings(room_id: str, resolution: str = None, show_bbox: bool = None, fps: int = None):
+def update_room_ui_settings(room_id: str, resolution: str = None, show_bbox: bool = None, fps: int = None, 
+                            xclk: int = None, jpeg_quality: int = None, fb_count: int = None, 
+                            brightness: int = None, contrast: int = None, saturation: int = None, vflip: int = None):
     """Updates the UI preferences for a room."""
     with get_connection() as conn:
         cursor = conn.cursor()
@@ -150,6 +163,20 @@ def update_room_ui_settings(room_id: str, resolution: str = None, show_bbox: boo
             cursor.execute('UPDATE rooms SET show_bbox = ? WHERE room_id = ?', (1 if show_bbox else 0, room_id))
         if fps is not None:
             cursor.execute('UPDATE rooms SET fps = ? WHERE room_id = ?', (fps, room_id))
+        if xclk is not None:
+            cursor.execute('UPDATE rooms SET xclk = ? WHERE room_id = ?', (xclk, room_id))
+        if jpeg_quality is not None:
+            cursor.execute('UPDATE rooms SET jpeg_quality = ? WHERE room_id = ?', (jpeg_quality, room_id))
+        if fb_count is not None:
+            cursor.execute('UPDATE rooms SET fb_count = ? WHERE room_id = ?', (fb_count, room_id))
+        if brightness is not None:
+            cursor.execute('UPDATE rooms SET brightness = ? WHERE room_id = ?', (brightness, room_id))
+        if contrast is not None:
+            cursor.execute('UPDATE rooms SET contrast = ? WHERE room_id = ?', (contrast, room_id))
+        if saturation is not None:
+            cursor.execute('UPDATE rooms SET saturation = ? WHERE room_id = ?', (saturation, room_id))
+        if vflip is not None:
+            cursor.execute('UPDATE rooms SET vflip = ? WHERE room_id = ?', (vflip, room_id))
         conn.commit()
 
 def delete_room(room_id: str):

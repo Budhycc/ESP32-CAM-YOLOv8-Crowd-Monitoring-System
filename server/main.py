@@ -113,6 +113,23 @@ async def handle_esp32_client(websocket, esp32_id):
             await websocket.send(f"SET_RESOLUTION:{room_info['resolution']}")
         except Exception as e:
             logger.error(f"Failed to send initial resolution to {esp32_id}: {e}")
+            
+    if room_info:
+        try:
+            adv_config_msg = (
+                f"SET_ADV_CONFIG:"
+                f"{room_info.get('xclk', 20000000)},"
+                f"{room_info.get('jpeg_quality', 20)},"
+                f"{room_info.get('fb_count', 2)},"
+                f"{room_info.get('brightness', 1)},"
+                f"{room_info.get('contrast', 1)},"
+                f"{room_info.get('saturation', -1)},"
+                f"{room_info.get('vflip', 0)}"
+            )
+            await websocket.send(adv_config_msg)
+            logger.info(f"Sent advanced config to {esp32_id}")
+        except Exception as e:
+            logger.error(f"Failed to send advanced config to {esp32_id}: {e}")
 
     await broadcast_to_dashboards({
         "type": "active_esps_update",
@@ -387,6 +404,49 @@ async def handle_dashboard_client(websocket):
                             update_room_ui_settings(room_id, show_bbox=show_bbox)
                             rooms_list = get_all_rooms()
                             active_rooms_cache = _build_rooms_cache(rooms_list)
+                elif req.get("action") == "update_adv_config":
+                    room_id = req.get("room_id")
+                    esp32_id = req.get("esp32_id")
+                    if room_id:
+                        room = next((r for r in active_rooms_cache.values() if r.get('room_id') == room_id), None)
+                        if room:
+                            update_room_ui_settings(
+                                room_id,
+                                xclk=req.get("xclk"),
+                                jpeg_quality=req.get("jpeg_quality"),
+                                fb_count=req.get("fb_count"),
+                                brightness=req.get("brightness"),
+                                contrast=req.get("contrast"),
+                                saturation=req.get("saturation"),
+                                vflip=req.get("vflip")
+                            )
+                            rooms_list = get_all_rooms()
+                            active_rooms_cache = _build_rooms_cache(rooms_list)
+                            
+                    if esp32_id and esp32_id in esp32_websockets:
+                        try:
+                            # Forward specific fields that can be applied live
+                            if req.get("jpeg_quality") is not None:
+                                await esp32_websockets[esp32_id].send(f"SET_QUALITY:{req.get('jpeg_quality')}")
+                            if req.get("brightness") is not None:
+                                await esp32_websockets[esp32_id].send(f"SET_BRIGHTNESS:{req.get('brightness')}")
+                            if req.get("contrast") is not None:
+                                await esp32_websockets[esp32_id].send(f"SET_CONTRAST:{req.get('contrast')}")
+                            if req.get("saturation") is not None:
+                                await esp32_websockets[esp32_id].send(f"SET_SATURATION:{req.get('saturation')}")
+                            if req.get("vflip") is not None:
+                                await esp32_websockets[esp32_id].send(f"SET_VFLIP:{req.get('vflip')}")
+                                
+                            # If core config changes, send it and esp32 should restart
+                            if req.get("xclk") is not None or req.get("fb_count") is not None:
+                                await esp32_websockets[esp32_id].send(f"SET_CORE_CONFIG:{req.get('xclk')},{req.get('fb_count')}")
+                        except Exception as e:
+                            logger.error(f"Failed to forward advanced config: {e}")
+
+                    await broadcast_to_dashboards({
+                        "type": "room_config_update",
+                        "rooms": list(active_rooms_cache.values())
+                    })
             except Exception as e:
                 logger.error(f"Error parsing dashboard client request: {e}")
 
