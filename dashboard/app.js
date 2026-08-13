@@ -398,6 +398,41 @@ window.saveAdvConfig = function(roomId, esp32Id) {
     if (el) el.classList.add('hidden');
 }
 
+window.saveAdvConfigEspOnly = function(espId) {
+    if (!ws || ws.readyState !== WebSocket.OPEN) {
+        alert("Not connected to server.");
+        return;
+    }
+    
+    const xclk = parseInt(document.getElementById(`adv-xclk-esp-${espId}`).value);
+    const fb = parseInt(document.getElementById(`adv-fb-esp-${espId}`).value);
+    const jpeg = parseInt(document.getElementById(`adv-jpeg-esp-${espId}`).value);
+    const bri = parseInt(document.getElementById(`adv-bri-esp-${espId}`).value);
+    const con = parseInt(document.getElementById(`adv-con-esp-${espId}`).value);
+    const sat = parseInt(document.getElementById(`adv-sat-esp-${espId}`).value);
+    const vflip = document.getElementById(`adv-vflip-esp-${espId}`).checked ? 1 : 0;
+    
+    if (!confirm("Apply settings to this ESP32? Changing XCLK or DMA Buffers will restart it.")) {
+        return;
+    }
+    
+    ws.send(JSON.stringify({
+        action: 'update_adv_config',
+        room_id: null,
+        esp32_id: espId,
+        xclk: xclk,
+        fb_count: fb,
+        jpeg_quality: jpeg,
+        brightness: bri,
+        contrast: con,
+        saturation: sat,
+        vflip: vflip
+    }));
+    
+    const el = document.getElementById(`adv-config-esp-${espId}`);
+    if (el) el.classList.add('hidden');
+}
+
 function renderActiveEsps() {
     if (!els.activeEspsList) return;
     els.activeEspsList.innerHTML = '';
@@ -414,23 +449,78 @@ function renderActiveEsps() {
         
         const isMapped = mappedEsps.has(id);
         const li = document.createElement('li');
-        li.style.cursor = 'pointer';
+        li.style.flexDirection = 'column';
+        li.style.alignItems = 'stretch';
         
         if (isMapped) {
             const roomName = currentRooms.find(r => r.esp32_id === id)?.room_id || 'Unknown';
             li.innerHTML = `
-                <span><strong>${id}</strong> <small style="color:var(--status-warning)">(Assigned to ${roomName})</small></span>
+                <div style="display: flex; justify-content: space-between; align-items: center; width: 100%; cursor: pointer;" onclick="document.getElementById('input-esp32-id').value = '${id}'; document.getElementById('input-room-id').focus();">
+                    <span><strong>${id}</strong> <small style="color:var(--status-warning)">(Assigned to ${roomName})</small></span>
+                </div>
             `;
         } else {
+            const jpeg = 20, bri = 1, con = 1, sat = -1; // Defaults for unassigned
             li.innerHTML = `
-                <span><strong>${id}</strong> <small style="color:var(--accent-color)">(Click to assign)</small></span>
+                <div style="display: flex; justify-content: space-between; align-items: center; width: 100%;">
+                    <span style="cursor: pointer;" onclick="document.getElementById('input-esp32-id').value = '${id}'; document.getElementById('input-room-id').focus();">
+                        <strong>${id}</strong> <small style="color:var(--accent-color)">(Click to assign)</small>
+                    </span>
+                    <button class="btn-secondary" onclick="toggleAdvConfig('esp-${id}')" style="padding: 0.3rem 0.8rem; font-size: 0.8rem;" title="Advanced Camera Tuning"><i class='bx bx-slider'></i></button>
+                </div>
+                
+                <div id="adv-config-esp-${id}" class="hidden" style="margin-top: 15px; padding: 15px; background: rgba(0,0,0,0.2); border-radius: 8px; border: 1px solid rgba(255,255,255,0.1);">
+                    <h4 style="margin-bottom: 10px; font-size: 0.9rem; color: var(--accent-color);"><i class='bx bx-chip'></i> Advanced Hardware Config (Restarts ESP)</h4>
+                    <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-bottom: 15px;">
+                        <div>
+                            <label style="font-size: 0.8rem;">XCLK (MHz)</label>
+                            <select id="adv-xclk-esp-${id}" class="form-input" style="padding: 5px; font-size: 0.8rem; width: 100%;">
+                                <option value="10000000">10 MHz</option>
+                                <option value="20000000" selected>20 MHz (Stable)</option>
+                                <option value="24000000">24 MHz</option>
+                            </select>
+                        </div>
+                        <div>
+                            <label style="font-size: 0.8rem;">DMA Buffers</label>
+                            <select id="adv-fb-esp-${id}" class="form-input" style="padding: 5px; font-size: 0.8rem; width: 100%;">
+                                <option value="1">1 Buffer (Low RAM)</option>
+                                <option value="2" selected>2 Buffers (Smooth)</option>
+                            </select>
+                        </div>
+                    </div>
+                    
+                    <h4 style="margin-bottom: 10px; font-size: 0.9rem; color: var(--status-healthy);"><i class='bx bx-camera'></i> Live Sensor Tuning</h4>
+                    <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 10px;">
+                        <div>
+                            <label style="font-size: 0.8rem; display: flex; justify-content: space-between;">JPEG Quality (10-63) <span id="lbl-jpeg-esp-${id}">${jpeg}</span></label>
+                            <input type="range" id="adv-jpeg-esp-${id}" min="10" max="63" value="${jpeg}" oninput="document.getElementById('lbl-jpeg-esp-${id}').innerText = this.value" style="width: 100%;">
+                        </div>
+                        <div>
+                            <label style="font-size: 0.8rem; display: flex; justify-content: space-between;">Brightness (-2 to 2) <span id="lbl-bri-esp-${id}">${bri}</span></label>
+                            <input type="range" id="adv-bri-esp-${id}" min="-2" max="2" value="${bri}" oninput="document.getElementById('lbl-bri-esp-${id}').innerText = this.value" style="width: 100%;">
+                        </div>
+                        <div>
+                            <label style="font-size: 0.8rem; display: flex; justify-content: space-between;">Contrast (-2 to 2) <span id="lbl-con-esp-${id}">${con}</span></label>
+                            <input type="range" id="adv-con-esp-${id}" min="-2" max="2" value="${con}" oninput="document.getElementById('lbl-con-esp-${id}').innerText = this.value" style="width: 100%;">
+                        </div>
+                        <div>
+                            <label style="font-size: 0.8rem; display: flex; justify-content: space-between;">Saturation (-2 to 2) <span id="lbl-sat-esp-${id}">${sat}</span></label>
+                            <input type="range" id="adv-sat-esp-${id}" min="-2" max="2" value="${sat}" oninput="document.getElementById('lbl-sat-esp-${id}').innerText = this.value" style="width: 100%;">
+                        </div>
+                        <div style="grid-column: span 2;">
+                            <label style="display: flex; align-items: center; gap: 5px; font-size: 0.8rem; cursor: pointer;">
+                                <input type="checkbox" id="adv-vflip-esp-${id}"> Vertical Flip (Upside Down)
+                            </label>
+                        </div>
+                    </div>
+                    
+                    <div style="margin-top: 15px; text-align: right;">
+                        <button class="btn-primary" onclick="saveAdvConfigEspOnly('${id}')" style="font-size: 0.85rem;"><i class='bx bx-save'></i> Apply & Save</button>
+                    </div>
+                </div>
             `;
         }
 
-        li.addEventListener('click', () => {
-            els.inputEsp32Id.value = id;
-            els.inputRoomId.focus();
-        });
         els.activeEspsList.appendChild(li);
     });
 }
