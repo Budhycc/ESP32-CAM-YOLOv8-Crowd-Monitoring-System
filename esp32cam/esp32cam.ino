@@ -1,27 +1,32 @@
 #include "WiFi.h"
-#include <WiFiManager.h>
 #include "esp_camera.h"
 #include <WebSocketsClient.h>
+#include <WiFiManager.h>
 #include <WiFiUdp.h>
 // ==========================================
 // CONFIGURATION
 // ==========================================
 
 // WebSocket Server Configuration
-String esp32_id = "";                           // Akan diisi otomatis dengan MAC Address di setup()
-String websocket_server = "";                   // Akan diisi otomatis via UDP Auto-Discovery
-const uint16_t websocket_port = 8765;           // Ganti dengan Port server Python (sesuai config.py)
+String esp32_id = ""; // Akan diisi otomatis dengan MAC Address di setup()
+String websocket_server = ""; // Akan diisi otomatis via UDP Auto-Discovery
+const uint16_t websocket_port =
+    8765; // Ganti dengan Port server Python (sesuai config.py)
 String websocket_path_str;
 
 // PIR Sensor Configuration
-const int pirPin = 13; // Pin yang terhubung ke sensor PIR (sesuaikan jika berbeda)
+const int pirPin =
+    13; // Pin yang terhubung ke sensor PIR (sesuaikan jika berbeda)
 bool motionDetected = false;
 bool isStreaming = false;
 unsigned long lastCaptureTime = 0;
-const int captureInterval = 500; // Interval ambil gambar saat ada gerakan (dalam ms)
+const int captureInterval =
+    500; // Interval ambil gambar saat ada gerakan (dalam ms)
 
 // BOOT Button Configuration (Reset WiFi)
-const int bootButtonPin = 0;       // Pin tombol BOOT (GPIO 0)
+const bool enableBootReset =
+    false; // Set true jika ingin mengaktifkan reset WiFi via tombol BOOT
+const int bootButtonPin = 0; // Pin tombol BOOT (GPIO 0)
 unsigned long bootPressStartTime = 0;
 bool bootButtonPressed = false;
 int lastHoldSecond = 0;
@@ -29,32 +34,33 @@ int lastHoldSecond = 0;
 // ==========================================
 // CAMERA PINS (AI-THINKER ESP32-CAM)
 // ==========================================
-#define PWDN_GPIO_NUM     32
-#define RESET_GPIO_NUM    -1
-#define XCLK_GPIO_NUM      0
-#define SIOD_GPIO_NUM     26
-#define SIOC_GPIO_NUM     27
-#define Y9_GPIO_NUM       35
-#define Y8_GPIO_NUM       34
-#define Y7_GPIO_NUM       39
-#define Y6_GPIO_NUM       36
-#define Y5_GPIO_NUM       21
-#define Y4_GPIO_NUM       19
-#define Y3_GPIO_NUM       18
-#define Y2_GPIO_NUM        5
-#define VSYNC_GPIO_NUM    25
-#define HREF_GPIO_NUM     23
-#define PCLK_GPIO_NUM     22
+#define PWDN_GPIO_NUM 32
+#define RESET_GPIO_NUM -1
+#define XCLK_GPIO_NUM 0
+#define SIOD_GPIO_NUM 26
+#define SIOC_GPIO_NUM 27
+#define Y9_GPIO_NUM 35
+#define Y8_GPIO_NUM 34
+#define Y7_GPIO_NUM 39
+#define Y6_GPIO_NUM 36
+#define Y5_GPIO_NUM 21
+#define Y4_GPIO_NUM 19
+#define Y3_GPIO_NUM 18
+#define Y2_GPIO_NUM 5
+#define VSYNC_GPIO_NUM 25
+#define HREF_GPIO_NUM 23
+#define PCLK_GPIO_NUM 22
 
 WebSocketsClient webSocket;
+WiFiUDP udp;
 
 void setResolution(String resStr) {
-  sensor_t * s = esp_camera_sensor_get();
+  sensor_t *s = esp_camera_sensor_get();
   if (!s) {
     Serial.println("Sensor not found");
     return;
   }
-  
+
   resStr.toUpperCase();
   if (resStr == "QVGA") {
     s->set_framesize(s, FRAMESIZE_QVGA);
@@ -76,36 +82,37 @@ void setResolution(String resStr) {
   }
 }
 
-void webSocketEvent(WStype_t type, uint8_t * payload, size_t length) {
-  switch(type) {
-    case WStype_DISCONNECTED:
-      Serial.println("[WebSocket] Disconnected!");
-      break;
-    case WStype_CONNECTED:
-      Serial.printf("[WebSocket] Connected to url: %s\n", payload);
-      break;
-    case WStype_TEXT: {
-      Serial.printf("[WebSocket] Received text: %s\n", payload);
-      String msg = String((char*)payload);
-      if (msg.startsWith("SET_RESOLUTION:")) {
-        String resStr = msg.substring(15);
-        resStr.trim();
-        setResolution(resStr);
-      } else if (msg == "SLEEP") {
-        Serial.println("Perintah SLEEP dari server diterima. Menghentikan streaming.");
-        isStreaming = false;
-      }
-      break;
+void webSocketEvent(WStype_t type, uint8_t *payload, size_t length) {
+  switch (type) {
+  case WStype_DISCONNECTED:
+    Serial.println("[WebSocket] Disconnected!");
+    break;
+  case WStype_CONNECTED:
+    Serial.printf("[WebSocket] Connected to url: %s\n", payload);
+    break;
+  case WStype_TEXT: {
+    Serial.printf("[WebSocket] Received text: %s\n", payload);
+    String msg = String((char *)payload);
+    if (msg.startsWith("SET_RESOLUTION:")) {
+      String resStr = msg.substring(15);
+      resStr.trim();
+      setResolution(resStr);
+    } else if (msg == "SLEEP") {
+      Serial.println(
+          "Perintah SLEEP dari server diterima. Menghentikan streaming.");
+      isStreaming = false;
     }
-    case WStype_BIN:
-      Serial.printf("[WebSocket] Received binary length: %u\n", length);
-      break;
-    case WStype_ERROR:      
-    case WStype_FRAGMENT_TEXT_START:
-    case WStype_FRAGMENT_BIN_START:
-    case WStype_FRAGMENT:
-    case WStype_FRAGMENT_FIN:
-      break;
+    break;
+  }
+  case WStype_BIN:
+    Serial.printf("[WebSocket] Received binary length: %u\n", length);
+    break;
+  case WStype_ERROR:
+  case WStype_FRAGMENT_TEXT_START:
+  case WStype_FRAGMENT_BIN_START:
+  case WStype_FRAGMENT:
+  case WStype_FRAGMENT_FIN:
+    break;
   }
 }
 
@@ -133,8 +140,9 @@ void setupCamera() {
   config.pixel_format = PIXFORMAT_JPEG;
 
   // Sesuaikan resolusi, untuk koneksi lancar disarankan QVGA, VGA, atau SVGA
-  if(psramFound()){
-    config.frame_size = FRAMESIZE_VGA; // FRAMESIZE_VGA (640x480), FRAMESIZE_SVGA (800x600)
+  if (psramFound()) {
+    config.frame_size =
+        FRAMESIZE_VGA; // FRAMESIZE_VGA (640x480), FRAMESIZE_SVGA (800x600)
     config.jpeg_quality = 12;
     config.fb_count = 2;
   } else {
@@ -160,9 +168,14 @@ void setup() {
   pinMode(pirPin, INPUT);
   Serial.println("PIR Sensor Initialized.");
 
-  // Setup BOOT Button
-  pinMode(bootButtonPin, INPUT_PULLUP);
-  Serial.println("BOOT Button Initialized (Hold 5s to reset WiFi).");
+  // Setup BOOT Button (jika diaktifkan)
+  if (enableBootReset) {
+    pinMode(bootButtonPin, INPUT_PULLUP);
+    Serial.println("BOOT Button Initialized (Hold 5s to reset WiFi).");
+  } else {
+    Serial.println(
+        "BOOT Button reset feature is DISABLED (enableBootReset = false).");
+  }
 
   // Setup WiFiManager
   WiFiManager wm;
@@ -187,40 +200,13 @@ void setup() {
   // Setup Camera
   setupCamera();
 
-  // Wait for UDP Announce from Server to get IP
-  WiFiUDP udp;
+  // Start UDP Listener for Server Auto-Discovery
   udp.begin(9876);
   Serial.println("Listening for Server Announce on UDP port 9876...");
-  
-  while (websocket_server == "") {
-    int packetSize = udp.parsePacket();
-    if (packetSize) {
-      char packetBuffer[255];
-      int len = udp.read(packetBuffer, 255);
-      if (len > 0) {
-        packetBuffer[len] = 0;
-      }
-      String msg = String(packetBuffer);
-      if (msg.startsWith("YOLOV8_SERVER_ANNOUNCE:")) {
-        websocket_server = udp.remoteIP().toString();
-        Serial.print("Found Server at IP: ");
-        Serial.println(websocket_server);
-      }
-    }
-    delay(100);
-  }
-
-  // Setup WebSocket Client
-  websocket_path_str = String("/ws/esp32/") + esp32_id;
-  webSocket.begin(websocket_server.c_str(), websocket_port, websocket_path_str.c_str());
-  webSocket.onEvent(webSocketEvent);
-  webSocket.setReconnectInterval(5000);
 }
 
-void loop() {
-  webSocket.loop();
-  
-  // Check for Serial commands to reset WiFi
+void checkResetWiFi() {
+  // Check for Serial commands to reset WiFi (selalu aktif)
   if (Serial.available() > 0) {
     String command = Serial.readStringUntil('\n');
     command.trim();
@@ -234,38 +220,77 @@ void loop() {
     }
   }
 
-  // Check for BOOT button hold (5 seconds to reset WiFi)
-  if (digitalRead(bootButtonPin) == LOW) {
-    if (!bootButtonPressed) {
-      bootButtonPressed = true;
-      bootPressStartTime = millis();
-      lastHoldSecond = 0;
+  // Check for BOOT button hold (5 seconds to reset WiFi) - hanya jika
+  // enableBootReset diaktifkan
+  if (enableBootReset) {
+    if (digitalRead(bootButtonPin) == LOW) {
+      if (!bootButtonPressed) {
+        bootButtonPressed = true;
+        bootPressStartTime = millis();
+        lastHoldSecond = 0;
+      } else {
+        unsigned long elapsed = millis() - bootPressStartTime;
+        int currentSecond = elapsed / 1000;
+        if (currentSecond > lastHoldSecond && currentSecond <= 5) {
+          lastHoldSecond = currentSecond;
+          Serial.printf("Tombol BOOT ditekan... %d/5 detik\n", currentSecond);
+        }
+        if (elapsed >= 5000) {
+          Serial.println("\n[RESET] Tombol BOOT ditahan 5 detik! Mereset "
+                         "konfigurasi WiFi...");
+          WiFiManager wm;
+          wm.resetSettings();
+          Serial.println(
+              "Konfigurasi WiFi berhasil di-reset. Restarting ESP32...");
+          delay(1000);
+          ESP.restart();
+        }
+      }
     } else {
-      unsigned long elapsed = millis() - bootPressStartTime;
-      int currentSecond = elapsed / 1000;
-      if (currentSecond > lastHoldSecond && currentSecond <= 5) {
-        lastHoldSecond = currentSecond;
-        Serial.printf("Tombol BOOT ditekan... %d/5 detik\n", currentSecond);
+      if (bootButtonPressed) {
+        bootButtonPressed = false;
+        lastHoldSecond = 0;
       }
-      if (elapsed >= 5000) {
-        Serial.println("\n[RESET] Tombol BOOT ditahan 5 detik! Mereset konfigurasi WiFi...");
-        WiFiManager wm;
-        wm.resetSettings();
-        Serial.println("Konfigurasi WiFi berhasil di-reset. Restarting ESP32...");
-        delay(1000);
-        ESP.restart();
-      }
-    }
-  } else {
-    if (bootButtonPressed) {
-      bootButtonPressed = false;
-      lastHoldSecond = 0;
     }
   }
+}
+
+void loop() {
+  // Selalu periksa tombol BOOT & perintah Serial di setiap iterasi loop
+  checkResetWiFi();
+
+  // Jika IP Server belum didapatkan via UDP, lakukan pencarian non-blocking
+  if (websocket_server == "") {
+    int packetSize = udp.parsePacket();
+    if (packetSize) {
+      char packetBuffer[255];
+      int len = udp.read(packetBuffer, 255);
+      if (len > 0) {
+        packetBuffer[len] = 0;
+      }
+      String msg = String(packetBuffer);
+      if (msg.startsWith("YOLOV8_SERVER_ANNOUNCE:")) {
+        websocket_server = udp.remoteIP().toString();
+        Serial.print("Found Server at IP: ");
+        Serial.println(websocket_server);
+
+        // Setup WebSocket Client setelah IP ditemukan
+        websocket_path_str = String("/ws/esp32/") + esp32_id;
+        webSocket.begin(websocket_server.c_str(), websocket_port,
+                        websocket_path_str.c_str());
+        webSocket.onEvent(webSocketEvent);
+        webSocket.setReconnectInterval(5000);
+      }
+    }
+    delay(10);
+    return;
+  }
+
+  webSocket.loop();
 
   // Baca status sensor PIR
   int pirState = digitalRead(pirPin);
-  
+
   if (pirState == HIGH) {
     if (!motionDetected) {
       Serial.println("Gerakan di pintu terdeteksi! Membangunkan kamera...");
@@ -274,12 +299,14 @@ void loop() {
     }
   } else {
     if (motionDetected) {
-      // Hanya mereset flag gerakan lokal, streaming tetap jalan sampai server suruh SLEEP
+      // Hanya mereset flag gerakan lokal, streaming tetap jalan sampai server
+      // suruh SLEEP
       motionDetected = false;
     }
   }
 
-  // Kirim gambar ke server setiap interval (e.g. 500ms) selama status streaming aktif
+  // Kirim gambar ke server setiap interval (e.g. 500ms) selama status streaming
+  // aktif
   if (isStreaming) {
     if (millis() - lastCaptureTime > captureInterval) {
       sendCameraFrame();
@@ -291,7 +318,7 @@ void loop() {
 void sendCameraFrame() {
   // Hanya mengirim jika websocket terhubung
   if (webSocket.isConnected()) {
-    camera_fb_t * fb = esp_camera_fb_get();
+    camera_fb_t *fb = esp_camera_fb_get();
     if (!fb) {
       Serial.println("Camera capture failed");
       return;
@@ -300,7 +327,7 @@ void sendCameraFrame() {
     // Kirim frame JPEG ke server dalam bentuk binary
     webSocket.sendBIN(fb->buf, fb->len);
     Serial.printf("Frame terkirim: %u bytes\n", fb->len);
-    
+
     esp_camera_fb_return(fb);
   }
 }
