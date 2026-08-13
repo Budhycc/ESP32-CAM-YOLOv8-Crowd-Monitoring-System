@@ -147,18 +147,23 @@ void setupCamera() {
   config.pin_sscb_scl = SIOC_GPIO_NUM;
   config.pin_pwdn = PWDN_GPIO_NUM;
   config.pin_reset = RESET_GPIO_NUM;
-  config.xclk_freq_hz = 20000000;
+  config.xclk_freq_hz = 20000000; // 20MHz: stabil di semua AI Thinker board
+  // CATATAN: 24MHz secara teori lebih cepat, tapi tidak stabil di banyak board AI Thinker
   config.pixel_format = PIXFORMAT_JPEG;
 
   // Sesuaikan resolusi, untuk koneksi lancar disarankan QVGA, VGA, atau SVGA
+  // CATATAN PENTING: Di ESP32-CAM, jpeg_quality TERBALIK dari konvensi umum:
+  //   Angka LEBIH KECIL = kualitas LEBIH TINGGI = file LEBIH BESAR (lambat)
+  //   Angka LEBIH BESAR = kualitas LEBIH RENDAH = file LEBIH KECIL (cepat transfer)
+  //   Optimal untuk streaming: 20-25 (balance kecepatan & cukup jelas untuk YOLOv8)
   if (psramFound()) {
     config.frame_size = FRAMESIZE_VGA;
-    config.jpeg_quality = 14; // Balance antara kualitas & kecepatan transfer WiFi
-    config.fb_count = 2;
+    config.jpeg_quality = 20; // 20 = file ~10-15KB, cukup jelas untuk deteksi orang
+    config.fb_count = 2;      // 2 DMA buffer: stabil & aman untuk semua board AI Thinker
     config.grab_mode = CAMERA_GRAB_LATEST; // Selalu ambil frame terbaru (Low Latency)
   } else {
     config.frame_size = FRAMESIZE_QVGA; // Non-PSRAM fallback ke QVGA agar lancar
-    config.jpeg_quality = 14;
+    config.jpeg_quality = 20;
     config.fb_count = 1;
     config.grab_mode = CAMERA_GRAB_LATEST;
   }
@@ -169,6 +174,24 @@ void setupCamera() {
     Serial.printf("Camera init failed with error 0x%x", err);
     return;
   }
+
+  // ==========================================
+  // SENSOR OV2640 TUNING (AI Thinker)
+  // ==========================================
+  // Hanya gunakan setting yang dijamin ada di semua versi library esp32-camera
+  sensor_t *s = esp_camera_sensor_get();
+  if (s) {
+    s->set_brightness(s, 1);      // +1: sedikit lebih terang, baik di dalam ruangan
+    s->set_contrast(s, 1);        // +1: kontras lebih baik untuk deteksi orang
+    s->set_saturation(s, -1);     // -1: warna lebih netral, kurangi noise warna
+    s->set_aec2(s, true);         // Advanced AEC: auto exposure lebih adaptif
+    s->set_awb_gain(s, true);     // Auto White Balance Gain aktif
+    s->set_lenc(s, true);         // Lens correction: koreksi distorsi lensa AI Thinker
+    s->set_vflip(s, 0);           // 0=normal, ubah ke 1 jika kamera terpasang terbalik
+    Serial.println("OV2640 sensor tuning applied.");
+    delay(300); // Beri waktu sensor stabilisasi sebelum mulai capture
+  }
+
   Serial.println("Camera Setup Successful.");
 }
 
@@ -323,6 +346,9 @@ void loop() {
     if (captureInterval == 0 || millis() - lastCaptureTime > captureInterval) {
       sendCameraFrame();
       lastCaptureTime = millis();
+      // Yield minimal agar watchdog timer tidak reset & buffer WebSocket tidak overflow
+      // di mode max FPS (captureInterval == 0)
+      if (captureInterval == 0) delay(1);
     }
   }
 }
@@ -330,7 +356,8 @@ void loop() {
 void sendCameraFrame() {
   // Hanya mengirim jika websocket terhubung
   if (webSocket.isConnected()) {
-    webSocket.loop(); // Pastikan event & ACK WebSocket diproses sebelum capture
+    // CATATAN: webSocket.loop() sudah dipanggil di loop() utama,
+    // tidak perlu duplikat di sini (mengurangi overhead processing)
     camera_fb_t *fb = esp_camera_fb_get();
     if (!fb) {
       Serial.println("Camera capture failed");
@@ -339,7 +366,7 @@ void sendCameraFrame() {
 
     // Kirim frame JPEG ke server dalam bentuk binary
     webSocket.sendBIN(fb->buf, fb->len);
-    // Serial.printf("Frame terkirim: %u bytes\n", fb->len); // Commented to prevent UART serial delay
+    // Serial.printf("Frame terkirim: %u bytes\n", fb->len); // Uncomment untuk debug ukuran frame
 
     esp_camera_fb_return(fb);
   }
