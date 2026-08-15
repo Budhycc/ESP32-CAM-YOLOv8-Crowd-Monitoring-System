@@ -49,12 +49,6 @@ def init_db():
         except sqlite3.OperationalError:
             pass
 
-        # Seed defaults if empty
-        cursor.execute('SELECT COUNT(*) FROM rooms')
-        if cursor.fetchone()[0] == 0:
-            cursor.executemany('''
-                INSERT INTO rooms (room_id, capacity, esp32_id, resolution, show_bbox) VALUES (?, ?, ?, ?, ?)
-            ''', [("Ruang_A", 30, "ESP-001", "VGA", 1), ("Ruang_B", 20, "ESP-002", "VGA", 1)])
         conn.commit()
     logger.info(f"Database initialized at: {DB_PATH}")
 
