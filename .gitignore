@@ -28,3 +28,5 @@ Thumbs.db
 
 # OpenVINO generated models
 *_openvino_model/
+
+sample/
