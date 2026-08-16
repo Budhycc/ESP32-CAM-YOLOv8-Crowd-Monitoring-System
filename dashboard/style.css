@@ -310,11 +310,9 @@ header {
 
 .camera-card:fullscreen .feed-container img,
 .camera-card:fullscreen .feed-container canvas {
-    max-height: 100%;
-    width: auto !important;
+    width: 100% !important;
     height: 100% !important;
     object-fit: contain;
-    margin: auto;
 }
 
 #video-feed {

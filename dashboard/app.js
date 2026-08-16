@@ -403,8 +403,8 @@ function ensureCameraCard(camId, data) {
             </div>
             
             <div class="feed-container" id="feed-container-${camId}" style="position: relative;">
-                <img id="video-feed-${camId}" src="" alt="Waiting for stream..." class="hidden" style="width: 100%; height: auto; display: block;">
-                <canvas id="bbox-canvas-${camId}" class="hidden" style="position: absolute; top: 0; left: 0; width: 100%; height: 100%; pointer-events: none;"></canvas>
+                <img id="video-feed-${camId}" src="" alt="Waiting for stream..." class="hidden" style="width: 100%; height: 100%; object-fit: contain; display: block;">
+                <canvas id="bbox-canvas-${camId}" class="hidden" style="position: absolute; top: 0; left: 0; width: 100%; height: 100%; object-fit: contain; pointer-events: none;"></canvas>
                 <div id="feed-placeholder-${camId}" class="placeholder">
                     <i class='bx bx-sleepy'></i>
                     <p>No video stream</p>
@@ -537,22 +537,19 @@ function updateCameraUI(camId, data) {
                 if (canvasEl && state.showBbox) {
                     canvasEl.classList.remove('hidden');
                     const ctx = canvasEl.getContext('2d');
-                    canvasEl.width = videoEl.clientWidth;
-                    canvasEl.height = videoEl.clientHeight;
+                    canvasEl.width = videoEl.naturalWidth;
+                    canvasEl.height = videoEl.naturalHeight;
                     ctx.clearRect(0, 0, canvasEl.width, canvasEl.height);
-                    
-                    const scaleX = canvasEl.width / videoEl.naturalWidth;
-                    const scaleY = canvasEl.height / videoEl.naturalHeight;
                     
                     if (data.deteksi_detail && data.deteksi_detail.length > 0) {
                         data.deteksi_detail.forEach(person => {
                             const [x1, y1, x2, y2] = person.bbox;
                             const conf = person.confidence;
                             
-                            const rectX = x1 * scaleX;
-                            const rectY = y1 * scaleY;
-                            const rectW = (x2 - x1) * scaleX;
-                            const rectH = (y2 - y1) * scaleY;
+                            const rectX = x1;
+                            const rectY = y1;
+                            const rectW = x2 - x1;
+                            const rectH = y2 - y1;
                             
                             ctx.strokeStyle = '#00ff00';
                             ctx.lineWidth = 2;
