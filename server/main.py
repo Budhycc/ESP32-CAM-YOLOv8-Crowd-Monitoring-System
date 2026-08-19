@@ -33,6 +33,9 @@ active_rooms_cache = {}  # keyed by esp32_id
 # Initialize YOLOv8 Object Detector
 detector = None
 
+# Global Flag for CLAHE Activation (Skenario S5)
+# Removed globals in favor of per-room settings
+
 def _build_rooms_cache(rooms_list: list) -> dict:
     """Konversi list rooms dari DB menjadi dict {esp32_id: room_info} untuk O(1) lookup."""
     return {r['esp32_id']: r for r in rooms_list if r.get('esp32_id')}
@@ -153,9 +156,15 @@ async def handle_esp32_client(websocket, esp32_id):
             if room_info:
                 current_camera_id = room_info['room_id']
                 current_capacity = room_info['capacity']
+                use_clahe = bool(room_info.get('use_clahe', 0))
+                use_frame_avg = bool(room_info.get('use_frame_avg', 0))
+                use_adaptive_conf = bool(room_info.get('use_adaptive_conf', 0))
             else:
                 current_camera_id = f"Unassigned ({esp32_id})"
                 current_capacity = DEFAULT_CAPACITY
+                use_clahe = False
+                use_frame_avg = False
+                use_adaptive_conf = False
 
             frame_counter += 1
             
@@ -174,7 +183,14 @@ async def handle_esp32_client(websocket, esp32_id):
             # Gunakan executor dedicated milik detector (ThreadPoolExecutor max_workers=4)
             person_count, avg_conf, persons, annotated_jpeg, latency_ms = await loop.run_in_executor(
                 detector.executor,
-                lambda: detector.process_frame(image_bytes, draw_overlay=True)
+                lambda: detector.process_frame(
+                    image_bytes, 
+                    draw_overlay=True, 
+                    use_clahe=use_clahe,
+                    camera_id=esp32_id,
+                    use_frame_averaging=use_frame_avg,
+                    use_adaptive_confidence=use_adaptive_conf
+                )
             )
 
             # Perform Crowd Density Classification
@@ -310,6 +326,20 @@ async def handle_dashboard_client(websocket):
                         "type": "history_response",
                         "history": history
                     }))
+                elif req.get("action") == "update_mitigation":
+                    room_id = req.get("room_id")
+                    if room_id:
+                        room = next((r for r in active_rooms_cache.values() if r.get('room_id') == room_id), None)
+                        if room:
+                            update_room_ui_settings(
+                                room_id,
+                                use_clahe=req.get("clahe"),
+                                use_frame_avg=req.get("frame_avg"),
+                                use_adaptive_conf=req.get("adaptive_conf")
+                            )
+                            rooms_list = get_all_rooms()
+                            active_rooms_cache = _build_rooms_cache(rooms_list)
+                            logger.info(f"Room '{room_id}' mitigation settings updated.")
                 elif req.get("action") == "add_room":
                     room_id = req.get("room_id")
                     old_room_id = req.get("old_room_id")

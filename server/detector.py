@@ -53,11 +53,23 @@ class ObjectDetector:
         # saat banyak kamera streaming bersamaan
         self.executor = ThreadPoolExecutor(max_workers=4, thread_name_prefix="yolo_worker")
         logger.info("ThreadPoolExecutor (max_workers=4) initialized for inference.")
+        
+        # State for Frame Averaging (keyed by camera_id)
+        self.history = {}
 
-    def process_frame(self, image_bytes: bytes, draw_overlay: bool = True, crowd_status: str = "Sepi"):
+    def process_frame(
+        self, 
+        image_bytes: bytes, 
+        draw_overlay: bool = True, 
+        crowd_status: str = "Sepi", 
+        use_clahe: bool = False,
+        camera_id: str = "default",
+        use_frame_averaging: bool = False,
+        use_adaptive_confidence: bool = False
+    ):
         """
-        Decodes JPEG bytes, runs YOLOv8 inference, filters 'person' class,
-        and annotates the image.
+        Decodes JPEG bytes, optionally applies CLAHE, runs YOLOv8 inference, 
+        filters 'person' class, and annotates the image.
         
         Returns tuple of 5 values (always):
         - person_count (int)
@@ -82,13 +94,32 @@ class ObjectDetector:
                 logger.warning("Failed to decode JPEG frame — skipping this frame.")
                 return 0, 0.0, [], image_bytes, 0.0
 
+            if use_clahe:
+                # Aplikasikan CLAHE pada channel Lightness
+                lab = cv2.cvtColor(frame, cv2.COLOR_BGR2LAB)
+                l_channel, a, b = cv2.split(lab)
+                clahe = cv2.createCLAHE(clipLimit=2.0, tileGridSize=(8, 8))
+                cl = clahe.apply(l_channel)
+                limg = cv2.merge((cl, a, b))
+                frame = cv2.cvtColor(limg, cv2.COLOR_LAB2BGR)
+
+            current_conf = CONFIDENCE_THRESHOLD
+            
+            # Adaptive Confidence Threshold
+            if use_adaptive_confidence:
+                gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
+                mean_brightness = np.mean(gray)
+                # Jika rata-rata brightness di bawah 100 (redup), turunkan threshold sebesar 0.1
+                if mean_brightness < 100:
+                    current_conf = max(0.1, current_conf - 0.1)
+
             # 2. Run inference dengan YOLOv8 model
             # imgsz=416: YOLO resize internal ke 416x416 sebelum inference
             # Meningkatkan kecepatan ~25-35% vs auto-detect dari frame VGA (640x480)
             # Akurasi deteksi orang di jarak normal tetap baik di resolusi ini
             results = self.model(
                 frame,
-                conf=CONFIDENCE_THRESHOLD,
+                conf=current_conf,
                 device=self.inference_device,
                 imgsz=416,
                 verbose=False
@@ -111,6 +142,20 @@ class ObjectDetector:
                     confidences.append(conf)
 
             person_count = len(detected_persons)
+            
+            # Frame Averaging (rata-rata 3 frame terakhir)
+            if use_frame_averaging:
+                if camera_id not in self.history:
+                    self.history[camera_id] = []
+                self.history[camera_id].append(person_count)
+                
+                # Simpan maksimal 3 frame
+                if len(self.history[camera_id]) > 3:
+                    self.history[camera_id].pop(0)
+                    
+                # Hitung rata-rata dan bulatkan
+                person_count = int(round(sum(self.history[camera_id]) / len(self.history[camera_id])))
+
             avg_confidence = float(np.mean(confidences)) if confidences else 0.0
 
             latency_ms = results.speed['preprocess'] + results.speed['inference'] + results.speed['postprocess']

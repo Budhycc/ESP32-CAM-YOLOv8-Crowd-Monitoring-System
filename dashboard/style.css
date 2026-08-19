@@ -682,6 +682,9 @@ header {
     padding: 2.5rem;
     transform: translateY(20px) scale(0.95);
     transition: transform 0.3s cubic-bezier(0.34, 1.56, 0.64, 1);
+    max-height: 90vh;
+    display: flex;
+    flex-direction: column;
 }
 .modal-overlay:not(.hidden) .modal-content {
     transform: translateY(0) scale(1);
@@ -710,7 +713,13 @@ header {
     display: flex;
     flex-direction: column;
     gap: 2rem;
+    overflow-y: auto;
+    padding-right: 5px;
 }
+/* Custom scrollbar for modal */
+.modal-body::-webkit-scrollbar { width: 6px; }
+.modal-body::-webkit-scrollbar-track { background: transparent; }
+.modal-body::-webkit-scrollbar-thumb { background: rgba(255,255,255,0.2); border-radius: 10px; }
 
 .add-room-form h3, .room-list-container h3 {
     font-size: 1rem;

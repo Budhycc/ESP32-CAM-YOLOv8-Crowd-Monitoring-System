@@ -49,6 +49,13 @@ def init_db():
         except sqlite3.OperationalError:
             pass
 
+        try:
+            cursor.execute('ALTER TABLE rooms ADD COLUMN use_clahe BOOLEAN DEFAULT 0')
+            cursor.execute('ALTER TABLE rooms ADD COLUMN use_frame_avg BOOLEAN DEFAULT 0')
+            cursor.execute('ALTER TABLE rooms ADD COLUMN use_adaptive_conf BOOLEAN DEFAULT 0')
+        except sqlite3.OperationalError:
+            pass
+
         conn.commit()
     logger.info(f"Database initialized at: {DB_PATH}")
 
@@ -97,7 +104,7 @@ def get_all_rooms():
     """Retrieves all room configurations."""
     with get_connection() as conn:
         cursor = conn.cursor()
-        cursor.execute('SELECT room_id, capacity, esp32_id, resolution, show_bbox, fps FROM rooms ORDER BY room_id')
+        cursor.execute('SELECT room_id, capacity, esp32_id, resolution, show_bbox, fps, use_clahe, use_frame_avg, use_adaptive_conf FROM rooms ORDER BY room_id')
         rows = cursor.fetchall()
         return [dict(row) for row in rows]
 
@@ -128,13 +135,13 @@ def upsert_room(room_id: str, capacity: int, esp32_id: str = None):
             cursor.execute('UPDATE rooms SET esp32_id = NULL WHERE esp32_id = ? AND room_id != ?', (esp32_id, room_id))
             
         cursor.execute('''
-            INSERT INTO rooms (room_id, capacity, esp32_id, resolution, show_bbox, fps)
-            VALUES (?, ?, ?, "VGA", 1, 0)
+            INSERT INTO rooms (room_id, capacity, esp32_id, resolution, show_bbox, fps, use_clahe, use_frame_avg, use_adaptive_conf)
+            VALUES (?, ?, ?, "VGA", 1, 0, 0, 0, 0)
             ON CONFLICT(room_id) DO UPDATE SET capacity=excluded.capacity, esp32_id=excluded.esp32_id
         ''', (room_id, capacity, esp32_id))
         conn.commit()
 
-def update_room_ui_settings(room_id: str, resolution: str = None, show_bbox: bool = None, fps: int = None):
+def update_room_ui_settings(room_id: str, resolution: str = None, show_bbox: bool = None, fps: int = None, use_clahe: bool = None, use_frame_avg: bool = None, use_adaptive_conf: bool = None):
     """Updates the UI preferences for a room."""
     with get_connection() as conn:
         cursor = conn.cursor()
@@ -144,6 +151,12 @@ def update_room_ui_settings(room_id: str, resolution: str = None, show_bbox: boo
             cursor.execute('UPDATE rooms SET show_bbox = ? WHERE room_id = ?', (1 if show_bbox else 0, room_id))
         if fps is not None:
             cursor.execute('UPDATE rooms SET fps = ? WHERE room_id = ?', (fps, room_id))
+        if use_clahe is not None:
+            cursor.execute('UPDATE rooms SET use_clahe = ? WHERE room_id = ?', (1 if use_clahe else 0, room_id))
+        if use_frame_avg is not None:
+            cursor.execute('UPDATE rooms SET use_frame_avg = ? WHERE room_id = ?', (1 if use_frame_avg else 0, room_id))
+        if use_adaptive_conf is not None:
+            cursor.execute('UPDATE rooms SET use_adaptive_conf = ? WHERE room_id = ?', (1 if use_adaptive_conf else 0, room_id))
         conn.commit()
 
 def delete_room(room_id: str):
