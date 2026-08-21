@@ -563,11 +563,17 @@ function ensureCameraCard(camId, data) {
     let savedBbox = true;
     let savedRes = 'VGA';
     let savedFps = 0;
+    let savedClahe = false;
+    let savedFrameAvg = false;
+    let savedAdaptConf = false;
     
     if (room) {
         if (room.show_bbox !== undefined) savedBbox = (room.show_bbox === 1 || room.show_bbox === true);
         if (room.resolution) savedRes = room.resolution;
         if (room.fps !== undefined && room.fps !== null) savedFps = room.fps;
+        if (room.use_clahe !== undefined) savedClahe = (room.use_clahe === 1 || room.use_clahe === true);
+        if (room.use_frame_avg !== undefined) savedFrameAvg = (room.use_frame_avg === 1 || room.use_frame_avg === true);
+        if (room.use_adaptive_conf !== undefined) savedAdaptConf = (room.use_adaptive_conf === 1 || room.use_adaptive_conf === true);
     } else {
         const lsBbox = localStorage.getItem(`bbox-${camId}`);
         const lsRes = localStorage.getItem(`res-${camId}`);
@@ -585,6 +591,9 @@ function ensureCameraCard(camId, data) {
         capacity: data.kapasitas || data.capacity || 0,
         lastStatus: null, // Added to track status changes and prevent log spam
         showBbox: savedBbox,
+        useClahe: savedClahe,
+        useFrameAvg: savedFrameAvg,
+        useAdaptiveConf: savedAdaptConf,
         isSleeping: false
     };
 
@@ -608,27 +617,30 @@ function ensureCameraCard(camId, data) {
                 </div>
             </div>
             
-            <div class="feed-meta" style="display: flex; justify-content: space-between; align-items: center;">
-                <div>
+            <div class="feed-meta" style="display: flex; flex-wrap: wrap; justify-content: space-between; align-items: center; margin-bottom: 15px;">
+                <div style="display: flex; gap: 15px; flex-wrap: wrap; width: 100%; color: var(--text-secondary); font-size: 0.85rem;">
                     <span id="timestamp-${camId}"><i class='bx bx-time-five'></i> --:--:--</span>
                     <span id="fps-${camId}"><i class='bx bx-tachometer'></i> 0 FPS</span>
                     <span id="latency-${camId}"><i class='bx bx-stopwatch'></i> -- ms</span>
                     <span id="resolution-${camId}"><i class='bx bx-expand'></i> --x--</span>
                 </div>
-                <div style="display: flex; flex-direction: column; align-items: flex-end; gap: 4px;">
-                    <label style="display: flex; align-items: center; cursor: pointer; font-size: 0.8rem; gap: 5px; color: var(--text-secondary);">
+            </div>
+            
+            <div class="feed-controls" style="display: flex; flex-direction: column; gap: 12px; padding-top: 12px; border-top: 1px solid rgba(255,255,255,0.1);">
+                <div style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 10px;">
+                    <label style="display: flex; align-items: center; cursor: pointer; font-size: 0.85rem; gap: 5px; color: var(--text-main);">
                         <input type="checkbox" id="toggle-bbox-${camId}" ${cameraState[camId].showBbox ? 'checked' : ''} onchange="cameraState['${camId}'].showBbox = this.checked; updateBboxSetting('${camId}', this.checked);"> Tampilkan Box
                     </label>
-                    <div style="display: flex; gap: 5px; flex-wrap: wrap;">
-                        <select id="res-select-${camId}" onchange="changeResolution('${camId}', this.value)" style="font-size: 0.8rem; padding: 2px 5px; background: rgba(255,255,255,0.1); border: 1px solid rgba(255,255,255,0.2); color: white; border-radius: 4px; outline: none; cursor: pointer;">
+                    <div style="display: flex; gap: 8px;">
+                        <select id="res-select-${camId}" onchange="changeResolution('${camId}', this.value)" style="font-size: 0.8rem; padding: 4px 8px; background: rgba(255,255,255,0.1); border: 1px solid rgba(255,255,255,0.2); color: white; border-radius: 4px; outline: none; cursor: pointer;">
                             <option style="color: black" value="QVGA" ${savedRes === 'QVGA' ? 'selected' : ''}>QVGA (320x240)</option>
                             <option style="color: black" value="VGA" ${savedRes === 'VGA' ? 'selected' : ''}>VGA (640x480)</option>
                             <option style="color: black" value="SVGA" ${savedRes === 'SVGA' ? 'selected' : ''}>SVGA (800x600)</option>
                             <option style="color: black" value="XGA" ${savedRes === 'XGA' ? 'selected' : ''}>XGA (1024x768)</option>
                             <option style="color: black" value="HD" ${savedRes === 'HD' ? 'selected' : ''}>HD (1280x720)</option>
                         </select>
-                        <select id="fps-select-${camId}" onchange="changeFps('${camId}', this.value)" style="font-size: 0.8rem; padding: 2px 5px; background: rgba(255,255,255,0.1); border: 1px solid rgba(255,255,255,0.2); color: white; border-radius: 4px; outline: none; cursor: pointer;">
-                            <option style="color: black" value="0" ${savedFps === 0 ? 'selected' : ''}>⚡ Dinamis (Max)</option>
+                        <select id="fps-select-${camId}" onchange="changeFps('${camId}', this.value)" style="font-size: 0.8rem; padding: 4px 8px; background: rgba(255,255,255,0.1); border: 1px solid rgba(255,255,255,0.2); color: white; border-radius: 4px; outline: none; cursor: pointer;">
+                            <option style="color: black" value="0" ${savedFps === 0 ? 'selected' : ''}>⚡ Max</option>
                             <option style="color: black" value="2" ${savedFps === 2 ? 'selected' : ''}>2 FPS</option>
                             <option style="color: black" value="5" ${savedFps === 5 ? 'selected' : ''}>5 FPS</option>
                             <option style="color: black" value="10" ${savedFps === 10 ? 'selected' : ''}>10 FPS</option>
@@ -637,6 +649,12 @@ function ensureCameraCard(camId, data) {
                             <option style="color: black" value="25" ${savedFps === 25 ? 'selected' : ''}>25 FPS</option>
                         </select>
                     </div>
+                </div>
+                <div style="display: flex; gap: 15px; font-size: 0.85rem; color: var(--accent-color); font-weight: 500; align-items: center; flex-wrap: wrap;">
+                    <span style="color: var(--text-muted); font-size: 0.75rem; text-transform: uppercase; letter-spacing: 1px; display: flex; align-items: center; gap: 4px;"><i class='bx bx-slider-alt'></i> Mitigasi:</span>
+                    <label style="cursor: pointer; display: flex; align-items: center; gap: 4px;" title="CLAHE: Mencerahkan area gelap pada frame (berguna untuk ruangan minim cahaya / Skenario S5)"><input type="checkbox" id="toggle-clahe-${camId}" ${cameraState[camId].useClahe ? 'checked' : ''} onchange="cameraState['${camId}'].useClahe = this.checked; updateMitigationSetting('${camId}');"> CLAHE <i class='bx bx-info-circle' style="font-size: 0.9rem; color: var(--text-muted);"></i></label>
+                    <label style="cursor: pointer; display: flex; align-items: center; gap: 4px;" title="Frame Averaging: Menstabilkan jumlah orang dengan mengambil rata-rata hasil deteksi dari 3 frame terakhir"><input type="checkbox" id="toggle-frame-avg-${camId}" ${cameraState[camId].useFrameAvg ? 'checked' : ''} onchange="cameraState['${camId}'].useFrameAvg = this.checked; updateMitigationSetting('${camId}');"> F-Avg <i class='bx bx-info-circle' style="font-size: 0.9rem; color: var(--text-muted);"></i></label>
+                    <label style="cursor: pointer; display: flex; align-items: center; gap: 4px;" title="Adaptive Confidence: Menurunkan ambang batas deteksi (confidence threshold) secara otomatis jika kondisi minim cahaya"><input type="checkbox" id="toggle-adapt-conf-${camId}" ${cameraState[camId].useAdaptiveConf ? 'checked' : ''} onchange="cameraState['${camId}'].useAdaptiveConf = this.checked; updateMitigationSetting('${camId}');"> A-Conf <i class='bx bx-info-circle' style="font-size: 0.9rem; color: var(--text-muted);"></i></label>
                 </div>
             </div>
 
@@ -918,6 +936,19 @@ window.updateBboxSetting = function(roomId, showBbox) {
             action: 'update_bbox',
             room_id: roomId,
             show_bbox: showBbox
+        }));
+    }
+}
+
+window.updateMitigationSetting = function(roomId) {
+    if (ws && ws.readyState === WebSocket.OPEN) {
+        const state = cameraState[roomId];
+        ws.send(JSON.stringify({
+            action: 'update_mitigation',
+            room_id: roomId,
+            clahe: state.useClahe,
+            frame_avg: state.useFrameAvg,
+            adaptive_conf: state.useAdaptiveConf
         }));
     }
 }

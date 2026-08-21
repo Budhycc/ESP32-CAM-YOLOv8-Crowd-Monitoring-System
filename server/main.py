@@ -10,6 +10,8 @@ import os
 import socket
 import time
 import websockets
+import cv2
+import numpy as np
 from config import HOST, PORT, DEFAULT_CAPACITY
 from database import init_db, save_detection, get_recent_logs, get_latest_log, get_all_rooms, get_room_capacity, upsert_room, delete_room, get_room_by_esp32, rename_room, update_room_ui_settings
 from classifier import classify_crowd
@@ -32,6 +34,9 @@ active_rooms_cache = {}  # keyed by esp32_id
 
 # Initialize YOLOv8 Object Detector
 detector = None
+
+# Global Flag for CLAHE Activation (Skenario S5)
+# Removed globals in favor of per-room settings
 
 def _build_rooms_cache(rooms_list: list) -> dict:
     """Konversi list rooms dari DB menjadi dict {esp32_id: room_info} untuk O(1) lookup."""
@@ -96,6 +101,13 @@ async def handle_esp32_client(websocket, esp32_id):
     last_person_time = time.time()
     last_frame_time = time.time()
     
+    # Video Recording Setup
+    recordings_dir = os.path.join(os.path.dirname(__file__), 'recordings')
+    os.makedirs(recordings_dir, exist_ok=True)
+    timestamp_start = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
+    video_filename = os.path.join(recordings_dir, f"{esp32_id}_{timestamp_start}.mp4")
+    video_writer = None
+    
     active_esps.add(esp32_id)
     esp32_websockets[esp32_id] = websocket
     
@@ -146,7 +158,7 @@ async def handle_esp32_client(websocket, esp32_id):
 
     async def frame_processor():
         nonlocal latest_frame, frame_counter, last_person_time, last_frame_time
-        nonlocal last_save_time, last_broadcast_time
+        nonlocal last_save_time, last_broadcast_time, video_writer
         loop = asyncio.get_running_loop()
         
         while is_active:
@@ -170,9 +182,15 @@ async def handle_esp32_client(websocket, esp32_id):
             if room_info:
                 current_camera_id = room_info['room_id']
                 current_capacity = room_info['capacity']
+                use_clahe = bool(room_info.get('use_clahe', 0))
+                use_frame_avg = bool(room_info.get('use_frame_avg', 0))
+                use_adaptive_conf = bool(room_info.get('use_adaptive_conf', 0))
             else:
                 current_camera_id = f"Unassigned ({esp32_id})"
                 current_capacity = DEFAULT_CAPACITY
+                use_clahe = False
+                use_frame_avg = False
+                use_adaptive_conf = False
 
             frame_counter += 1
             
@@ -191,8 +209,29 @@ async def handle_esp32_client(websocket, esp32_id):
             # Gunakan executor dedicated milik detector (ThreadPoolExecutor max_workers=4)
             person_count, avg_conf, persons, annotated_jpeg, latency_ms = await loop.run_in_executor(
                 detector.executor,
-                lambda: detector.process_frame(image_bytes, draw_overlay=True)
+                lambda: detector.process_frame(
+                    image_bytes, 
+                    draw_overlay=True, 
+                    use_clahe=use_clahe,
+                    camera_id=esp32_id,
+                    use_frame_averaging=use_frame_avg,
+                    use_adaptive_confidence=use_adaptive_conf
+                )
             )
+
+            # Save frame to video
+            try:
+                nparr = np.frombuffer(image_bytes, np.uint8)
+                frame = cv2.imdecode(nparr, cv2.IMREAD_COLOR)
+                if frame is not None:
+                    if video_writer is None:
+                        height, width = frame.shape[:2]
+                        fourcc = cv2.VideoWriter_fourcc(*'mp4v')
+                        fps_to_use = target_fps if target_fps > 0 else 10.0
+                        video_writer = cv2.VideoWriter(video_filename, fourcc, float(fps_to_use), (width, height))
+                    await loop.run_in_executor(None, video_writer.write, frame)
+            except Exception as e:
+                logger.error(f"Error saving frame to video: {e}")
 
             # Perform Crowd Density Classification
             classification = classify_crowd(person_count, current_capacity)
@@ -287,6 +326,9 @@ async def handle_esp32_client(websocket, esp32_id):
             "type": "active_esps_update",
             "active_esps": list(active_esps)
         })
+        if video_writer is not None:
+            video_writer.release()
+            logger.info(f"Video saved to {video_filename}")
         logger.info("ESP32-CAM streaming session ended.")
 
 async def handle_dashboard_client(websocket):
@@ -327,6 +369,20 @@ async def handle_dashboard_client(websocket):
                         "type": "history_response",
                         "history": history
                     }))
+                elif req.get("action") == "update_mitigation":
+                    room_id = req.get("room_id")
+                    if room_id:
+                        room = next((r for r in active_rooms_cache.values() if r.get('room_id') == room_id), None)
+                        if room:
+                            update_room_ui_settings(
+                                room_id,
+                                use_clahe=req.get("clahe"),
+                                use_frame_avg=req.get("frame_avg"),
+                                use_adaptive_conf=req.get("adaptive_conf")
+                            )
+                            rooms_list = get_all_rooms()
+                            active_rooms_cache = _build_rooms_cache(rooms_list)
+                            logger.info(f"Room '{room_id}' mitigation settings updated.")
                 elif req.get("action") == "add_room":
                     room_id = req.get("room_id")
                     old_room_id = req.get("old_room_id")

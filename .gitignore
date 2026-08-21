@@ -34,3 +34,11 @@ bab 4.md
 Sistem Pemantauan Tingkat Keramaian Ruangan Berbasis IoT Menggunakan ESP32-CAM dan Algoritma Yolo_Revisi.docx
 template bab 4.rtf
 bab4_draft.md
+
+sample/*
+revisi.md
+docx_text.txt
+read_docx.py
+Pengujian_Sistem.md
+
+server/recordings/*
