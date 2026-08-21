@@ -319,7 +319,13 @@ async def handle_esp32_client(websocket, esp32_id):
     finally:
         is_active = False
         frame_event.set()
-        processor_task.cancel()
+        try:
+            # Beri waktu frame_processor menyelesaikan eksekusi di thread 
+            # (menghindari segfault karena concurrency release() saat sedang write())
+            await asyncio.wait_for(processor_task, timeout=2.0)
+        except (asyncio.TimeoutError, asyncio.CancelledError):
+            processor_task.cancel()
+
         active_esps.discard(esp32_id)
         esp32_websockets.pop(esp32_id, None)
         await broadcast_to_dashboards({
@@ -327,8 +333,11 @@ async def handle_esp32_client(websocket, esp32_id):
             "active_esps": list(active_esps)
         })
         if video_writer is not None:
-            video_writer.release()
-            logger.info(f"Video saved to {video_filename}")
+            try:
+                video_writer.release()
+                logger.info(f"Video saved to {video_filename}")
+            except Exception as e:
+                logger.error(f"Error releasing video writer: {e}")
         logger.info("ESP32-CAM streaming session ended.")
 
 async def handle_dashboard_client(websocket):

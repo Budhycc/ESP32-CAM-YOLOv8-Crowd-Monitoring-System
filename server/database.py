@@ -38,37 +38,28 @@ def init_db():
         except sqlite3.OperationalError:
             pass # Column already exists
             
-        try:
-            cursor.execute('ALTER TABLE rooms ADD COLUMN resolution TEXT DEFAULT "VGA"')
-            cursor.execute('ALTER TABLE rooms ADD COLUMN show_bbox BOOLEAN DEFAULT 1')
-        except sqlite3.OperationalError:
-            pass
+        columns = [
+            ('resolution', 'TEXT DEFAULT "VGA"'),
+            ('show_bbox', 'BOOLEAN DEFAULT 1'),
+            ('fps', 'INTEGER DEFAULT 0'),
+            ('xclk', 'INTEGER DEFAULT 20000000'),
+            ('jpeg_quality', 'INTEGER DEFAULT 20'),
+            ('fb_count', 'INTEGER DEFAULT 2'),
+            ('brightness', 'INTEGER DEFAULT 1'),
+            ('contrast', 'INTEGER DEFAULT 1'),
+            ('saturation', 'INTEGER DEFAULT -1'),
+            ('vflip', 'INTEGER DEFAULT 0'),
+            ('use_clahe', 'BOOLEAN DEFAULT 0'),
+            ('use_frame_avg', 'BOOLEAN DEFAULT 0'),
+            ('use_adaptive_conf', 'BOOLEAN DEFAULT 0')
+        ]
+        for col_name, col_type in columns:
+            try:
+                cursor.execute(f'ALTER TABLE rooms ADD COLUMN {col_name} {col_type}')
+            except sqlite3.OperationalError:
+                pass
 
-        try:
-            cursor.execute('ALTER TABLE rooms ADD COLUMN fps INTEGER DEFAULT 0')
-        except sqlite3.OperationalError:
-            pass
 
-        try:
-            cursor.execute('ALTER TABLE rooms ADD COLUMN xclk INTEGER DEFAULT 20000000')
-            cursor.execute('ALTER TABLE rooms ADD COLUMN jpeg_quality INTEGER DEFAULT 20')
-            cursor.execute('ALTER TABLE rooms ADD COLUMN fb_count INTEGER DEFAULT 2')
-            cursor.execute('ALTER TABLE rooms ADD COLUMN brightness INTEGER DEFAULT 1')
-            cursor.execute('ALTER TABLE rooms ADD COLUMN contrast INTEGER DEFAULT 1')
-            cursor.execute('ALTER TABLE rooms ADD COLUMN saturation INTEGER DEFAULT -1')
-            cursor.execute('ALTER TABLE rooms ADD COLUMN vflip INTEGER DEFAULT 0')
-            cursor.execute('ALTER TABLE rooms ADD COLUMN use_clahe BOOLEAN DEFAULT 0')
-            cursor.execute('ALTER TABLE rooms ADD COLUMN use_frame_avg BOOLEAN DEFAULT 0')
-            cursor.execute('ALTER TABLE rooms ADD COLUMN use_adaptive_conf BOOLEAN DEFAULT 0')
-        except sqlite3.OperationalError:
-            pass
-
-        # Seed defaults if empty
-        cursor.execute('SELECT COUNT(*) FROM rooms')
-        if cursor.fetchone()[0] == 0:
-            cursor.executemany('''
-                INSERT INTO rooms (room_id, capacity, esp32_id, resolution, show_bbox) VALUES (?, ?, ?, ?, ?)
-            ''', [("Ruang_A", 30, "ESP-001", "VGA", 1), ("Ruang_B", 20, "ESP-002", "VGA", 1)])
         conn.commit()
     logger.info(f"Database initialized at: {DB_PATH}")
 
