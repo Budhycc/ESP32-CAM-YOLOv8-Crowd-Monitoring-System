@@ -10,6 +10,8 @@ import os
 import socket
 import time
 import websockets
+import cv2
+import numpy as np
 from config import HOST, PORT, DEFAULT_CAPACITY
 from database import init_db, save_detection, get_recent_logs, get_latest_log, get_all_rooms, get_room_capacity, upsert_room, delete_room, get_room_by_esp32, rename_room, update_room_ui_settings
 from classifier import classify_crowd
@@ -99,6 +101,13 @@ async def handle_esp32_client(websocket, esp32_id):
     last_person_time = time.time()
     last_frame_time = time.time()
     
+    # Video Recording Setup
+    recordings_dir = os.path.join(os.path.dirname(__file__), 'recordings')
+    os.makedirs(recordings_dir, exist_ok=True)
+    timestamp_start = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
+    video_filename = os.path.join(recordings_dir, f"{esp32_id}_{timestamp_start}.mp4")
+    video_writer = None
+    
     active_esps.add(esp32_id)
     esp32_websockets[esp32_id] = websocket
     
@@ -132,7 +141,7 @@ async def handle_esp32_client(websocket, esp32_id):
 
     async def frame_processor():
         nonlocal latest_frame, frame_counter, last_person_time, last_frame_time
-        nonlocal last_save_time, last_broadcast_time
+        nonlocal last_save_time, last_broadcast_time, video_writer
         loop = asyncio.get_running_loop()
         
         while is_active:
@@ -192,6 +201,20 @@ async def handle_esp32_client(websocket, esp32_id):
                     use_adaptive_confidence=use_adaptive_conf
                 )
             )
+
+            # Save frame to video
+            try:
+                nparr = np.frombuffer(image_bytes, np.uint8)
+                frame = cv2.imdecode(nparr, cv2.IMREAD_COLOR)
+                if frame is not None:
+                    if video_writer is None:
+                        height, width = frame.shape[:2]
+                        fourcc = cv2.VideoWriter_fourcc(*'mp4v')
+                        fps_to_use = target_fps if target_fps > 0 else 10.0
+                        video_writer = cv2.VideoWriter(video_filename, fourcc, float(fps_to_use), (width, height))
+                    await loop.run_in_executor(None, video_writer.write, frame)
+            except Exception as e:
+                logger.error(f"Error saving frame to video: {e}")
 
             # Perform Crowd Density Classification
             classification = classify_crowd(person_count, current_capacity)
@@ -286,6 +309,9 @@ async def handle_esp32_client(websocket, esp32_id):
             "type": "active_esps_update",
             "active_esps": list(active_esps)
         })
+        if video_writer is not None:
+            video_writer.release()
+            logger.info(f"Video saved to {video_filename}")
         logger.info("ESP32-CAM streaming session ended.")
 
 async def handle_dashboard_client(websocket):
