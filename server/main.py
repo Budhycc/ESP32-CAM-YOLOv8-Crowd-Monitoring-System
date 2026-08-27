@@ -32,6 +32,7 @@ esp32_websockets = {}
 # vs list dengan linear search O(n) sebelumnya
 active_rooms_cache = {}      # primary index: keyed by esp32_id
 active_rooms_by_room_id = {} # secondary index: {room_id: room_info} untuk O(1) lookup di handler dashboard
+unassigned_settings = {}     # temporary memory for cameras not assigned to any room
 
 # Initialize YOLOv8 Object Detector
 detector = None
@@ -191,12 +192,15 @@ async def handle_esp32_client(websocket, esp32_id):
                 use_clahe = bool(room_info.get('use_clahe', 0))
                 use_frame_avg = bool(room_info.get('use_frame_avg', 0))
                 use_adaptive_conf = bool(room_info.get('use_adaptive_conf', 0))
+                use_yolo = bool(room_info.get('use_yolo', 1))
             else:
                 current_camera_id = f"Unassigned ({esp32_id})"
                 current_capacity = DEFAULT_CAPACITY
-                use_clahe = False
-                use_frame_avg = False
-                use_adaptive_conf = False
+                tmp_settings = unassigned_settings.get(esp32_id, {})
+                use_clahe = bool(tmp_settings.get('use_clahe', False))
+                use_frame_avg = bool(tmp_settings.get('use_frame_avg', False))
+                use_adaptive_conf = bool(tmp_settings.get('use_adaptive_conf', False))
+                use_yolo = bool(tmp_settings.get('use_yolo', True))
 
             frame_counter += 1
             
@@ -211,19 +215,35 @@ async def handle_esp32_client(websocket, esp32_id):
                     logger.warning("Received invalid text data from ESP32-CAM, expected binary JPEG or base64.")
                     continue
 
-            # Run YOLOv8 detection in executor thread
-            # Gunakan executor dedicated milik detector (ThreadPoolExecutor max_workers=4)
-            person_count, avg_conf, persons, annotated_jpeg, latency_ms, decoded_frame = await loop.run_in_executor(
-                detector.executor,
-                lambda: detector.process_frame(
-                    image_bytes,
-                    draw_overlay=True,
-                    use_clahe=use_clahe,
-                    camera_id=esp32_id,
-                    use_frame_averaging=use_frame_avg,
-                    use_adaptive_confidence=use_adaptive_conf
+            if use_yolo:
+                # Run YOLOv8 detection in executor thread
+                # Gunakan executor dedicated milik detector (ThreadPoolExecutor max_workers=4)
+                person_count, avg_conf, persons, annotated_jpeg, latency_ms, decoded_frame = await loop.run_in_executor(
+                    detector.executor,
+                    lambda: detector.process_frame(
+                        image_bytes,
+                        draw_overlay=True,
+                        use_clahe=use_clahe,
+                        camera_id=esp32_id,
+                        use_frame_averaging=use_frame_avg,
+                        use_adaptive_confidence=use_adaptive_conf
+                    )
                 )
-            )
+            else:
+                person_count = 0
+                avg_conf = 0.0
+                persons = []
+                annotated_jpeg = image_bytes
+                latency_ms = 0.0
+                
+                # Decode frame just for the video writer (in background thread)
+                def _decode():
+                    arr = np.frombuffer(image_bytes, np.uint8)
+                    return cv2.imdecode(arr, cv2.IMREAD_COLOR)
+                try:
+                    decoded_frame = await loop.run_in_executor(None, _decode)
+                except Exception:
+                    decoded_frame = None
 
             # Save frame to video
             # Reuse decoded_frame dari inference — eliminasi double JPEG decode (~10-20ms saving per frame)
@@ -385,16 +405,27 @@ async def handle_dashboard_client(websocket):
                 elif req.get("action") == "update_mitigation":
                     room_id = req.get("room_id")
                     if room_id:
-                        room = active_rooms_by_room_id.get(room_id)
-                        if room:
-                            update_room_ui_settings(
-                                room_id,
-                                use_clahe=req.get("clahe"),
-                                use_frame_avg=req.get("frame_avg"),
-                                use_adaptive_conf=req.get("adaptive_conf")
-                            )
-                            _rebuild_rooms_cache(get_all_rooms())
-                            logger.info(f"Room '{room_id}' mitigation settings updated.")
+                        if room_id.startswith("Unassigned ("):
+                            esp32_id = room_id[12:-1]
+                            unassigned_settings[esp32_id] = {
+                                'use_clahe': req.get("clahe"),
+                                'use_frame_avg': req.get("frame_avg"),
+                                'use_adaptive_conf': req.get("adaptive_conf"),
+                                'use_yolo': req.get("yolo")
+                            }
+                            logger.info(f"Unassigned camera '{esp32_id}' mitigation settings updated in memory.")
+                        else:
+                            room = active_rooms_by_room_id.get(room_id)
+                            if room:
+                                update_room_ui_settings(
+                                    room_id,
+                                    use_clahe=req.get("clahe"),
+                                    use_frame_avg=req.get("frame_avg"),
+                                    use_adaptive_conf=req.get("adaptive_conf"),
+                                    use_yolo=req.get("yolo")
+                                )
+                                _rebuild_rooms_cache(get_all_rooms())
+                                logger.info(f"Room '{room_id}' mitigation settings updated.")
                 elif req.get("action") == "add_room":
                     room_id = req.get("room_id")
                     old_room_id = req.get("old_room_id")

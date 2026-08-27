@@ -55,7 +55,8 @@ def init_db():
             ('vflip', 'INTEGER DEFAULT 0'),
             ('use_clahe', 'BOOLEAN DEFAULT 0'),
             ('use_frame_avg', 'BOOLEAN DEFAULT 0'),
-            ('use_adaptive_conf', 'BOOLEAN DEFAULT 0')
+            ('use_adaptive_conf', 'BOOLEAN DEFAULT 0'),
+            ('use_yolo', 'BOOLEAN DEFAULT 1')
         ]
         for col_name, col_type in columns:
             try:
@@ -112,7 +113,7 @@ def get_all_rooms():
     """Retrieves all room configurations."""
     with get_connection() as conn:
         cursor = conn.cursor()
-        cursor.execute('SELECT room_id, capacity, esp32_id, resolution, show_bbox, fps, xclk, jpeg_quality, fb_count, brightness, contrast, saturation, vflip, use_clahe, use_frame_avg, use_adaptive_conf FROM rooms ORDER BY room_id')
+        cursor.execute('SELECT room_id, capacity, esp32_id, resolution, show_bbox, fps, xclk, jpeg_quality, fb_count, brightness, contrast, saturation, vflip, use_clahe, use_frame_avg, use_adaptive_conf, use_yolo FROM rooms ORDER BY room_id')
         rows = cursor.fetchall()
         return [dict(row) for row in rows]
 
@@ -143,8 +144,8 @@ def upsert_room(room_id: str, capacity: int, esp32_id: str = None):
             cursor.execute('UPDATE rooms SET esp32_id = NULL WHERE esp32_id = ? AND room_id != ?', (esp32_id, room_id))
             
         cursor.execute('''
-            INSERT INTO rooms (room_id, capacity, esp32_id, resolution, show_bbox, fps, xclk, jpeg_quality, fb_count, brightness, contrast, saturation, vflip, use_clahe, use_frame_avg, use_adaptive_conf)
-            VALUES (?, ?, ?, "VGA", 1, 0, 20000000, 20, 2, 1, 1, -1, 0, 0, 0, 0)
+            INSERT INTO rooms (room_id, capacity, esp32_id, resolution, show_bbox, fps, xclk, jpeg_quality, fb_count, brightness, contrast, saturation, vflip, use_clahe, use_frame_avg, use_adaptive_conf, use_yolo)
+            VALUES (?, ?, ?, "VGA", 1, 0, 20000000, 20, 2, 1, 1, -1, 0, 0, 0, 0, 1)
             ON CONFLICT(room_id) DO UPDATE SET capacity=excluded.capacity, esp32_id=excluded.esp32_id
         ''', (room_id, capacity, esp32_id))
         conn.commit()
@@ -152,16 +153,17 @@ def upsert_room(room_id: str, capacity: int, esp32_id: str = None):
 def update_room_ui_settings(room_id: str, resolution: str = None, show_bbox: bool = None, fps: int = None,
                             xclk: int = None, jpeg_quality: int = None, fb_count: int = None,
                             brightness: int = None, contrast: int = None, saturation: int = None, vflip: int = None,
-                            use_clahe: bool = None, use_frame_avg: bool = None, use_adaptive_conf: bool = None):
+                            use_clahe: bool = None, use_frame_avg: bool = None, use_adaptive_conf: bool = None,
+                            use_yolo: bool = None):
     """Updates the UI preferences for a room menggunakan satu query UPDATE dinamis (vs N query terpisah)."""
     # Field yang memakai representasi boolean (True/False → 1/0 di SQLite)
-    bool_fields = {'show_bbox', 'use_clahe', 'use_frame_avg', 'use_adaptive_conf'}
+    bool_fields = {'show_bbox', 'use_clahe', 'use_frame_avg', 'use_adaptive_conf', 'use_yolo'}
     all_params = {
         'resolution': resolution, 'show_bbox': show_bbox, 'fps': fps,
         'xclk': xclk, 'jpeg_quality': jpeg_quality, 'fb_count': fb_count,
         'brightness': brightness, 'contrast': contrast, 'saturation': saturation,
         'vflip': vflip, 'use_clahe': use_clahe, 'use_frame_avg': use_frame_avg,
-        'use_adaptive_conf': use_adaptive_conf,
+        'use_adaptive_conf': use_adaptive_conf, 'use_yolo': use_yolo,
     }
     # Filter None, terapkan konversi bool→int untuk kolom boolean
     updates = {

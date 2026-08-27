@@ -566,6 +566,7 @@ function ensureCameraCard(camId, data) {
     let savedClahe = false;
     let savedFrameAvg = false;
     let savedAdaptConf = false;
+    let savedYolo = true;
     
     if (room) {
         if (room.show_bbox !== undefined) savedBbox = (room.show_bbox === 1 || room.show_bbox === true);
@@ -574,6 +575,7 @@ function ensureCameraCard(camId, data) {
         if (room.use_clahe !== undefined) savedClahe = (room.use_clahe === 1 || room.use_clahe === true);
         if (room.use_frame_avg !== undefined) savedFrameAvg = (room.use_frame_avg === 1 || room.use_frame_avg === true);
         if (room.use_adaptive_conf !== undefined) savedAdaptConf = (room.use_adaptive_conf === 1 || room.use_adaptive_conf === true);
+        if (room.use_yolo !== undefined) savedYolo = (room.use_yolo === 1 || room.use_yolo === true);
     } else {
         const lsBbox = localStorage.getItem(`bbox-${camId}`);
         const lsRes = localStorage.getItem(`res-${camId}`);
@@ -581,6 +583,7 @@ function ensureCameraCard(camId, data) {
         savedBbox = lsBbox !== null ? lsBbox === 'true' : true;
         savedRes = lsRes || 'VGA';
         savedFps = lsFps !== null ? parseInt(lsFps) : 0;
+        savedYolo = true;
     }
 
     // Initialize state
@@ -594,6 +597,7 @@ function ensureCameraCard(camId, data) {
         useClahe: savedClahe,
         useFrameAvg: savedFrameAvg,
         useAdaptiveConf: savedAdaptConf,
+        useYolo: savedYolo,
         isSleeping: false
     };
 
@@ -628,9 +632,14 @@ function ensureCameraCard(camId, data) {
             
             <div class="feed-controls" style="display: flex; flex-direction: column; gap: 12px; padding-top: 12px; border-top: 1px solid rgba(255,255,255,0.1);">
                 <div style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 10px;">
-                    <label style="display: flex; align-items: center; cursor: pointer; font-size: 0.85rem; gap: 5px; color: var(--text-main);">
-                        <input type="checkbox" id="toggle-bbox-${camId}" ${cameraState[camId].showBbox ? 'checked' : ''} onchange="cameraState['${camId}'].showBbox = this.checked; updateBboxSetting('${camId}', this.checked);"> Tampilkan Box
-                    </label>
+                    <div style="display: flex; gap: 15px;">
+                        <label style="display: flex; align-items: center; cursor: pointer; font-size: 0.85rem; gap: 5px; color: var(--text-main);" title="Matikan untuk melihat frame real dari ESP32 tanpa diproses oleh AI">
+                            <input type="checkbox" id="toggle-yolo-${camId}" ${cameraState[camId].useYolo ? 'checked' : ''} onchange="cameraState['${camId}'].useYolo = this.checked; updateMitigationSetting('${camId}');"> YOLO Aktif
+                        </label>
+                        <label style="display: flex; align-items: center; cursor: pointer; font-size: 0.85rem; gap: 5px; color: var(--text-main);">
+                            <input type="checkbox" id="toggle-bbox-${camId}" ${cameraState[camId].showBbox ? 'checked' : ''} onchange="cameraState['${camId}'].showBbox = this.checked; updateBboxSetting('${camId}', this.checked);"> Tampilkan Box
+                        </label>
+                    </div>
                     <div style="display: flex; gap: 8px;">
                         <select id="res-select-${camId}" onchange="changeResolution('${camId}', this.value)" style="font-size: 0.8rem; padding: 4px 8px; background: rgba(255,255,255,0.1); border: 1px solid rgba(255,255,255,0.2); color: white; border-radius: 4px; outline: none; cursor: pointer;">
                             <option style="color: black" value="QVGA" ${savedRes === 'QVGA' ? 'selected' : ''}>QVGA (320x240)</option>
@@ -948,7 +957,8 @@ window.updateMitigationSetting = function(roomId) {
             room_id: roomId,
             clahe: state.useClahe,
             frame_avg: state.useFrameAvg,
-            adaptive_conf: state.useAdaptiveConf
+            adaptive_conf: state.useAdaptiveConf,
+            yolo: state.useYolo
         }));
     }
 }
