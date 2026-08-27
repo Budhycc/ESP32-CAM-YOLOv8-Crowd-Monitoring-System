@@ -1,5 +1,5 @@
 # Python / Virtual Environment
-__pycache__/
+server/__pycache__/*
 *.py[cod]
 *$py.class
 .venv/
