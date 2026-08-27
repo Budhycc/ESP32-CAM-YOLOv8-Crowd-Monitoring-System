@@ -9,6 +9,10 @@ def get_connection():
     """Returns a connection to the SQLite database."""
     conn = sqlite3.connect(DB_PATH)
     conn.row_factory = sqlite3.Row
+    # WAL mode: reader tidak blokir writer dan sebaliknya → throughput write 3-5×
+    # NORMAL sync: aman untuk monitoring data, jauh lebih cepat dari FULL (default)
+    conn.execute("PRAGMA journal_mode=WAL")
+    conn.execute("PRAGMA synchronous=NORMAL")
     return conn
 
 def init_db():
@@ -145,40 +149,32 @@ def upsert_room(room_id: str, capacity: int, esp32_id: str = None):
         ''', (room_id, capacity, esp32_id))
         conn.commit()
 
-def update_room_ui_settings(room_id: str, resolution: str = None, show_bbox: bool = None, fps: int = None, 
-                            xclk: int = None, jpeg_quality: int = None, fb_count: int = None, 
+def update_room_ui_settings(room_id: str, resolution: str = None, show_bbox: bool = None, fps: int = None,
+                            xclk: int = None, jpeg_quality: int = None, fb_count: int = None,
                             brightness: int = None, contrast: int = None, saturation: int = None, vflip: int = None,
                             use_clahe: bool = None, use_frame_avg: bool = None, use_adaptive_conf: bool = None):
-    """Updates the UI preferences for a room."""
+    """Updates the UI preferences for a room menggunakan satu query UPDATE dinamis (vs N query terpisah)."""
+    # Field yang memakai representasi boolean (True/False → 1/0 di SQLite)
+    bool_fields = {'show_bbox', 'use_clahe', 'use_frame_avg', 'use_adaptive_conf'}
+    all_params = {
+        'resolution': resolution, 'show_bbox': show_bbox, 'fps': fps,
+        'xclk': xclk, 'jpeg_quality': jpeg_quality, 'fb_count': fb_count,
+        'brightness': brightness, 'contrast': contrast, 'saturation': saturation,
+        'vflip': vflip, 'use_clahe': use_clahe, 'use_frame_avg': use_frame_avg,
+        'use_adaptive_conf': use_adaptive_conf,
+    }
+    # Filter None, terapkan konversi bool→int untuk kolom boolean
+    updates = {
+        k: (1 if v else 0) if k in bool_fields else v
+        for k, v in all_params.items() if v is not None
+    }
+    if not updates:
+        return
+
+    fields_sql = ', '.join(f"{k} = ?" for k in updates)
+    values = list(updates.values()) + [room_id]
     with get_connection() as conn:
-        cursor = conn.cursor()
-        if resolution is not None:
-            cursor.execute('UPDATE rooms SET resolution = ? WHERE room_id = ?', (resolution, room_id))
-        if show_bbox is not None:
-            cursor.execute('UPDATE rooms SET show_bbox = ? WHERE room_id = ?', (1 if show_bbox else 0, room_id))
-        if fps is not None:
-            cursor.execute('UPDATE rooms SET fps = ? WHERE room_id = ?', (fps, room_id))
-        if xclk is not None:
-            cursor.execute('UPDATE rooms SET xclk = ? WHERE room_id = ?', (xclk, room_id))
-        if jpeg_quality is not None:
-            cursor.execute('UPDATE rooms SET jpeg_quality = ? WHERE room_id = ?', (jpeg_quality, room_id))
-        if fb_count is not None:
-            cursor.execute('UPDATE rooms SET fb_count = ? WHERE room_id = ?', (fb_count, room_id))
-        if brightness is not None:
-            cursor.execute('UPDATE rooms SET brightness = ? WHERE room_id = ?', (brightness, room_id))
-        if contrast is not None:
-            cursor.execute('UPDATE rooms SET contrast = ? WHERE room_id = ?', (contrast, room_id))
-        if saturation is not None:
-            cursor.execute('UPDATE rooms SET saturation = ? WHERE room_id = ?', (saturation, room_id))
-        if vflip is not None:
-            cursor.execute('UPDATE rooms SET vflip = ? WHERE room_id = ?', (vflip, room_id))
-        if use_clahe is not None:
-            cursor.execute('UPDATE rooms SET use_clahe = ? WHERE room_id = ?', (1 if use_clahe else 0, room_id))
-        if use_frame_avg is not None:
-            cursor.execute('UPDATE rooms SET use_frame_avg = ? WHERE room_id = ?', (1 if use_frame_avg else 0, room_id))
-        if use_adaptive_conf is not None:
-            cursor.execute('UPDATE rooms SET use_adaptive_conf = ? WHERE room_id = ?', (1 if use_adaptive_conf else 0, room_id))
-        conn.commit()
+        conn.execute(f"UPDATE rooms SET {fields_sql} WHERE room_id = ?", values)
 
 def delete_room(room_id: str):
     """Deletes a room configuration."""

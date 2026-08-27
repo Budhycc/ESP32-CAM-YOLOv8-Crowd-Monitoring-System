@@ -1,6 +1,7 @@
 import cv2
 import numpy as np
 import logging
+from collections import deque
 from concurrent.futures import ThreadPoolExecutor
 from ultralytics import YOLO
 from config import YOLO_MODEL_PATH, CONFIDENCE_THRESHOLD, TARGET_CLASS_ID
@@ -54,8 +55,11 @@ class ObjectDetector:
         self.executor = ThreadPoolExecutor(max_workers=4, thread_name_prefix="yolo_worker")
         logger.info("ThreadPoolExecutor (max_workers=4) initialized for inference.")
         
-        # State for Frame Averaging (keyed by camera_id)
+        # State for Frame Averaging (keyed by camera_id), menggunakan deque O(1) vs list.pop(0) O(n)
         self.history = {}
+        
+        # CLAHE objek diinisialisasi sekali (bukan per-frame) untuk menghindari alokasi berulang
+        self.clahe = cv2.createCLAHE(clipLimit=2.0, tileGridSize=(8, 8))
 
     def process_frame(
         self, 
@@ -86,20 +90,19 @@ class ObjectDetector:
                 nparr = np.frombuffer(image_bytes, np.uint8)
                 frame = cv2.imdecode(nparr, cv2.IMREAD_COLOR)
             except Exception:
-                return 0, 0.0, [], image_bytes, 0.0
+                return 0, 0.0, [], image_bytes, 0.0, None
 
             if frame is None:
-                # PENTING: harus return 5 nilai (bukan 4) agar tidak ValueError saat unpack di main.py
+                # PENTING: harus return 6 nilai agar tidak ValueError saat unpack di main.py
                 # "Corrupt JPEG" warning dari OpenCV di atas adalah normal untuk frame terpotong
                 logger.warning("Failed to decode JPEG frame — skipping this frame.")
-                return 0, 0.0, [], image_bytes, 0.0
+                return 0, 0.0, [], image_bytes, 0.0, None
 
             if use_clahe:
-                # Aplikasikan CLAHE pada channel Lightness
+                # Aplikasikan CLAHE pada channel Lightness (reuse objek self.clahe, tidak alokasi baru per-frame)
                 lab = cv2.cvtColor(frame, cv2.COLOR_BGR2LAB)
                 l_channel, a, b = cv2.split(lab)
-                clahe = cv2.createCLAHE(clipLimit=2.0, tileGridSize=(8, 8))
-                cl = clahe.apply(l_channel)
+                cl = self.clahe.apply(l_channel)
                 limg = cv2.merge((cl, a, b))
                 frame = cv2.cvtColor(limg, cv2.COLOR_LAB2BGR)
 
@@ -143,17 +146,11 @@ class ObjectDetector:
 
             person_count = len(detected_persons)
             
-            # Frame Averaging (rata-rata 3 frame terakhir)
+            # Frame Averaging menggunakan deque(maxlen=3): append/pop O(1) vs list.pop(0) O(n)
             if use_frame_averaging:
                 if camera_id not in self.history:
-                    self.history[camera_id] = []
+                    self.history[camera_id] = deque(maxlen=3)
                 self.history[camera_id].append(person_count)
-                
-                # Simpan maksimal 3 frame
-                if len(self.history[camera_id]) > 3:
-                    self.history[camera_id].pop(0)
-                    
-                # Hitung rata-rata dan bulatkan
                 person_count = int(round(sum(self.history[camera_id]) / len(self.history[camera_id])))
 
             avg_confidence = float(np.mean(confidences)) if confidences else 0.0
@@ -161,8 +158,9 @@ class ObjectDetector:
             latency_ms = results.speed['preprocess'] + results.speed['inference'] + results.speed['postprocess']
 
             # Return original image_bytes langsung (hemat ~15ms vs re-encode ulang)
-            return person_count, avg_confidence, detected_persons, image_bytes, latency_ms
+            # frame (numpy array) juga dikembalikan agar caller dapat reuse tanpa decode ulang
+            return person_count, avg_confidence, detected_persons, image_bytes, latency_ms, frame
 
         except Exception as e:
             logger.error(f"Unexpected error during YOLOv8 inference: {e}", exc_info=True)
-            return 0, 0.0, [], image_bytes, 0.0
+            return 0, 0.0, [], image_bytes, 0.0, None

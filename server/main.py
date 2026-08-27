@@ -30,7 +30,8 @@ active_esps = set()
 esp32_websockets = {}
 # Room cache sebagai dict {esp32_id: room_info} untuk lookup O(1) per frame
 # vs list dengan linear search O(n) sebelumnya
-active_rooms_cache = {}  # keyed by esp32_id
+active_rooms_cache = {}      # primary index: keyed by esp32_id
+active_rooms_by_room_id = {} # secondary index: {room_id: room_info} untuk O(1) lookup di handler dashboard
 
 # Initialize YOLOv8 Object Detector
 detector = None
@@ -38,9 +39,14 @@ detector = None
 # Global Flag for CLAHE Activation (Skenario S5)
 # Removed globals in favor of per-room settings
 
-def _build_rooms_cache(rooms_list: list) -> dict:
-    """Konversi list rooms dari DB menjadi dict {esp32_id: room_info} untuk O(1) lookup."""
-    return {r['esp32_id']: r for r in rooms_list if r.get('esp32_id')}
+def _rebuild_rooms_cache(rooms_list: list) -> None:
+    """Update kedua room cache sebagai side-effect setiap ada perubahan data rooms di DB.
+    - active_rooms_cache      : {esp32_id: room_info} — O(1) lookup per frame
+    - active_rooms_by_room_id : {room_id:  room_info} — O(1) lookup by room_id di dashboard handler
+    """
+    global active_rooms_cache, active_rooms_by_room_id
+    active_rooms_cache = {r['esp32_id']: r for r in rooms_list if r.get('esp32_id')}
+    active_rooms_by_room_id = {r['room_id']: r for r in rooms_list}
 
 def start_http_server():
     """Runs a local HTTP server for the Web Dashboard in a background thread."""
@@ -207,11 +213,11 @@ async def handle_esp32_client(websocket, esp32_id):
 
             # Run YOLOv8 detection in executor thread
             # Gunakan executor dedicated milik detector (ThreadPoolExecutor max_workers=4)
-            person_count, avg_conf, persons, annotated_jpeg, latency_ms = await loop.run_in_executor(
+            person_count, avg_conf, persons, annotated_jpeg, latency_ms, decoded_frame = await loop.run_in_executor(
                 detector.executor,
                 lambda: detector.process_frame(
-                    image_bytes, 
-                    draw_overlay=True, 
+                    image_bytes,
+                    draw_overlay=True,
                     use_clahe=use_clahe,
                     camera_id=esp32_id,
                     use_frame_averaging=use_frame_avg,
@@ -220,16 +226,15 @@ async def handle_esp32_client(websocket, esp32_id):
             )
 
             # Save frame to video
+            # Reuse decoded_frame dari inference — eliminasi double JPEG decode (~10-20ms saving per frame)
             try:
-                nparr = np.frombuffer(image_bytes, np.uint8)
-                frame = cv2.imdecode(nparr, cv2.IMREAD_COLOR)
-                if frame is not None:
+                if decoded_frame is not None:
                     if video_writer is None:
-                        height, width = frame.shape[:2]
+                        height, width = decoded_frame.shape[:2]
                         fourcc = cv2.VideoWriter_fourcc(*'mp4v')
                         fps_to_use = target_fps if target_fps > 0 else 10.0
                         video_writer = cv2.VideoWriter(video_filename, fourcc, float(fps_to_use), (width, height))
-                    await loop.run_in_executor(None, video_writer.write, frame)
+                    await loop.run_in_executor(detector.executor, video_writer.write, decoded_frame)
             except Exception as e:
                 logger.error(f"Error saving frame to video: {e}")
 
@@ -277,13 +282,15 @@ async def handle_esp32_client(websocket, esp32_id):
             timestamp_str = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
 
             # THROTTLE frame_b64 ke dashboard: max 5 FPS (interval 0.2 detik)
-            # Metadata (count, status) tetap dikirim setiap frame; hanya gambar yang di-throttle
+            # deteksi_detail (bbox list) juga di-throttle bersama frame untuk hemat bandwidth ~30%
             should_send_frame = (now - last_broadcast_time) >= 0.2
             if should_send_frame:
                 last_broadcast_time = now
                 annotated_b64 = base64.b64encode(annotated_jpeg).decode('utf-8') if annotated_jpeg else ""
+                detail_payload = persons
             else:
-                annotated_b64 = ""  # Kosong = dashboard gunakan frame terakhir yang ada
+                annotated_b64 = ""   # Kosong = dashboard gunakan frame terakhir yang ada
+                detail_payload = []  # Kosong = dashboard gunakan bounding box terakhir yang ada
 
             payload = {
                 "type": "detection_update",
@@ -295,7 +302,7 @@ async def handle_esp32_client(websocket, esp32_id):
                 "persentase": classification["persentase"],
                 "status": crowd_status,
                 "confidence_rata2": round(avg_conf, 2),
-                "deteksi_detail": persons,
+                "deteksi_detail": detail_payload,
                 "frame_b64": annotated_b64,
                 "latensi": round(latency_ms, 1)
             }
@@ -342,7 +349,6 @@ async def handle_esp32_client(websocket, esp32_id):
 
 async def handle_dashboard_client(websocket):
     """Handles Web Dashboard client connection and real-time streaming."""
-    global active_rooms_cache
     logger.info("Web Dashboard client connected.")
     dashboard_clients.add(websocket)
 
@@ -350,12 +356,10 @@ async def handle_dashboard_client(websocket):
         # Send latest detection log & history upon connection
         latest_log = get_latest_log()
         recent_history = get_recent_logs(limit=20)
-        
+
         if not active_rooms_cache:
-            rooms_list = get_all_rooms()
-            active_rooms_cache = _build_rooms_cache(rooms_list)
-        else:
-            rooms_list = list(active_rooms_cache.values())
+            _rebuild_rooms_cache(get_all_rooms())
+        rooms_list = list(active_rooms_cache.values())
             
         init_payload = {
             "type": "init_state",
@@ -381,7 +385,7 @@ async def handle_dashboard_client(websocket):
                 elif req.get("action") == "update_mitigation":
                     room_id = req.get("room_id")
                     if room_id:
-                        room = next((r for r in active_rooms_cache.values() if r.get('room_id') == room_id), None)
+                        room = active_rooms_by_room_id.get(room_id)
                         if room:
                             update_room_ui_settings(
                                 room_id,
@@ -389,8 +393,7 @@ async def handle_dashboard_client(websocket):
                                 use_frame_avg=req.get("frame_avg"),
                                 use_adaptive_conf=req.get("adaptive_conf")
                             )
-                            rooms_list = get_all_rooms()
-                            active_rooms_cache = _build_rooms_cache(rooms_list)
+                            _rebuild_rooms_cache(get_all_rooms())
                             logger.info(f"Room '{room_id}' mitigation settings updated.")
                 elif req.get("action") == "add_room":
                     room_id = req.get("room_id")
@@ -402,7 +405,7 @@ async def handle_dashboard_client(websocket):
                             rename_room(old_room_id, room_id)
                         upsert_room(room_id, capacity, esp32_id)
                         rooms_list = get_all_rooms()
-                        active_rooms_cache = _build_rooms_cache(rooms_list)
+                        _rebuild_rooms_cache(rooms_list)
                         await broadcast_to_dashboards({
                             "type": "room_config_update",
                             "rooms": rooms_list
@@ -412,7 +415,7 @@ async def handle_dashboard_client(websocket):
                     if room_id:
                         delete_room(room_id)
                         rooms_list = get_all_rooms()
-                        active_rooms_cache = _build_rooms_cache(rooms_list)
+                        _rebuild_rooms_cache(rooms_list)
                         await broadcast_to_dashboards({
                             "type": "room_config_update",
                             "rooms": rooms_list
@@ -421,14 +424,12 @@ async def handle_dashboard_client(websocket):
                     esp32_id = req.get("esp32_id")
                     res = req.get("resolution")
                     room_id = req.get("room_id")
-                    
+
                     if room_id:
-                        # Cari room by room_id di dict values
-                        room = next((r for r in active_rooms_cache.values() if r.get('room_id') == room_id), None)
+                        room = active_rooms_by_room_id.get(room_id)
                         if room:
                             update_room_ui_settings(room_id, res, room.get('show_bbox', 1))
-                            rooms_list = get_all_rooms()
-                            active_rooms_cache = _build_rooms_cache(rooms_list)
+                            _rebuild_rooms_cache(get_all_rooms())
 
                     if esp32_id and esp32_id in esp32_websockets:
                         try:
@@ -441,13 +442,12 @@ async def handle_dashboard_client(websocket):
                     esp32_id = req.get("esp32_id")
                     fps_val = req.get("fps", 2)
                     room_id = req.get("room_id")
-                    
+
                     if room_id:
-                        room = next((r for r in active_rooms_cache.values() if r.get('room_id') == room_id), None)
+                        room = active_rooms_by_room_id.get(room_id)
                         if room:
                             update_room_ui_settings(room_id, fps=fps_val)
-                            rooms_list = get_all_rooms()
-                            active_rooms_cache = _build_rooms_cache(rooms_list)
+                            _rebuild_rooms_cache(get_all_rooms())
 
                     if esp32_id and esp32_id in esp32_websockets:
                         try:
@@ -455,7 +455,7 @@ async def handle_dashboard_client(websocket):
                             logger.info(f"Sent target FPS {fps_val} to {esp32_id}")
                         except Exception as e:
                             logger.error(f"Failed to send FPS: {e}")
-                            
+
                     await broadcast_to_dashboards({
                         "type": "room_config_update",
                         "rooms": list(active_rooms_cache.values())
@@ -464,16 +464,15 @@ async def handle_dashboard_client(websocket):
                     room_id = req.get("room_id")
                     show_bbox = req.get("show_bbox")
                     if room_id:
-                        room = next((r for r in active_rooms_cache.values() if r.get('room_id') == room_id), None)
+                        room = active_rooms_by_room_id.get(room_id)
                         if room:
                             update_room_ui_settings(room_id, show_bbox=show_bbox)
-                            rooms_list = get_all_rooms()
-                            active_rooms_cache = _build_rooms_cache(rooms_list)
+                            _rebuild_rooms_cache(get_all_rooms())
                 elif req.get("action") == "update_adv_config":
                     room_id = req.get("room_id")
                     esp32_id = req.get("esp32_id")
                     if room_id:
-                        room = next((r for r in active_rooms_cache.values() if r.get('room_id') == room_id), None)
+                        room = active_rooms_by_room_id.get(room_id)
                         if room:
                             update_room_ui_settings(
                                 room_id,
@@ -485,8 +484,7 @@ async def handle_dashboard_client(websocket):
                                 saturation=req.get("saturation"),
                                 vflip=req.get("vflip")
                             )
-                            rooms_list = get_all_rooms()
-                            active_rooms_cache = _build_rooms_cache(rooms_list)
+                            _rebuild_rooms_cache(get_all_rooms())
                             
                     if esp32_id and esp32_id in esp32_websockets:
                         try:
@@ -548,9 +546,8 @@ async def main():
     logger.info("Step 1: Initializing Database...")
     init_db()
     
-    global active_rooms_cache
     rooms_list = get_all_rooms()
-    active_rooms_cache = _build_rooms_cache(rooms_list)
+    _rebuild_rooms_cache(rooms_list)
     logger.info(f"Loaded {len(active_rooms_cache)} rooms into cache (dict, O(1) lookup).")
 
     # Load YOLOv8 Model
@@ -572,13 +569,16 @@ async def main():
         sock.setsockopt(socket.SOL_SOCKET, socket.SO_BROADCAST, 1)
         message = f"YOLOV8_SERVER_ANNOUNCE:{PORT}".encode('utf-8')
         logger.info(f"Step 5: Starting UDP Auto-Discovery Broadcaster on port {UDP_PORT}...")
-        while True:
-            try:
-                sock.sendto(message, ('<broadcast>', UDP_PORT))
-                time.sleep(2)
-            except Exception as e:
-                logger.error(f"UDP Announce error: {e}")
-                time.sleep(5)
+        try:
+            while True:
+                try:
+                    sock.sendto(message, ('<broadcast>', UDP_PORT))
+                    time.sleep(2)
+                except Exception as e:
+                    logger.error(f"UDP Announce error: {e}")
+                    time.sleep(5)
+        finally:
+            sock.close()
                 
     udp_thread = threading.Thread(target=udp_announcer, daemon=True)
     udp_thread.start()

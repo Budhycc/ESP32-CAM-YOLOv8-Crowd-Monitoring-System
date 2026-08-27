@@ -14,8 +14,8 @@ def classify_crowd(person_count: int, capacity: int = DEFAULT_CAPACITY) -> dict:
     if capacity <= 0:
         capacity = 1  # Avoid division by zero
         
-    percentage = (person_count / capacity) * 100.0
     ratio = person_count / capacity
+    percentage = ratio * 100.0
     
     if ratio <= SEPI_MAX_RATIO:
         status = "Sepi"
