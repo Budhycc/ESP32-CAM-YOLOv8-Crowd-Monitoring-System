@@ -38,6 +38,26 @@ SCENARIOS = {
     "S6_QVGA": {"resolution": (320, 240), "name": "QVGA + Mitigasi", "clahe": True, "frame_avg": True, "adaptive_conf": True, "fps": 10},
 }
 
+def get_dynamic_gt(current_sec, video_name="2.mp4"):
+    """
+    Pemetaan Ground Truth dinamis berdasarkan detik ke-sekian dari video.
+    Mendukung pemetaan untuk 1.mp4 (60 detik) dan 2.mp4 (40 detik).
+    """
+    if "1.mp4" in video_name:
+        if current_sec <= 6: return 5
+        elif current_sec <= 20: return 4
+        elif current_sec <= 22: return 5
+        elif current_sec <= 32: return 4
+        else: return 3
+    else:
+        # Default untuk 2.mp4
+        if current_sec <= 5: return 12
+        elif current_sec <= 15: return 14
+        elif current_sec <= 17: return 15
+        elif current_sec <= 26: return 14
+        elif current_sec <= 29: return 13
+        else: return 12
+
 def calculate_metrics(detected, ground_truth):
     """
     Menghitung aproksimasi Precision dan Recall berdasarkan *count*.
@@ -54,28 +74,47 @@ def calculate_metrics(detected, ground_truth):
     
     return precision, recall
 
-def run_scenario(scenario_id, config, video_path, detector, args):
+def run_scenario(scenario_id, config, video_paths, detector, args):
     logger.info(f"--- Memulai {scenario_id}: Resolusi {config['name']} {config['resolution']} ---")
-    
-    # Init VideoReader
-    reader = VideoReader(video_path, f"Cam_{scenario_id}")
-    reader.start(resolution=config['resolution'])
-    
-    # Beri waktu VideoReader untuk mendapatkan frame pertama
-    time.sleep(1.0)
-    
-    expected_status = classify_crowd(args.gt_person, args.capacity)["status"]
     
     precisions = []
     recalls = []
     latencies = []
     counts = []
     correct_classifications = 0
-    
     frames_processed = 0
     
-    while frames_processed < args.frames:
-        raw_frame = reader.get_frame()
+    # Pelacakan per kondisi
+    cond_metrics = {
+        "Sepi": {"prec": [], "rec": [], "lat": [], "cnt": [], "corr": 0, "frames": 0},
+        "Sedang": {"prec": [], "rec": [], "lat": [], "cnt": [], "corr": 0, "frames": 0},
+        "Ramai": {"prec": [], "rec": [], "lat": [], "cnt": [], "corr": 0, "frames": 0}
+    }
+    
+    for video_path in video_paths:
+        video_name = os.path.basename(video_path)
+        if "1.mp4" in video_name:
+            duration = 60
+        elif "2.mp4" in video_name:
+            duration = 40
+        else:
+            duration = 40
+            
+        # Init VideoReader
+        reader = VideoReader(video_path, f"Cam_{scenario_id}")
+        reader.start(resolution=config['resolution'])
+        
+        scenario_start_time = time.time()
+        
+        # Beri waktu VideoReader untuk mendapatkan frame pertama
+        time.sleep(1.0)
+        
+        while True:
+            current_sec = time.time() - scenario_start_time
+            if current_sec >= duration:
+                break
+                
+            raw_frame = reader.get_frame()
         if raw_frame is None:
             time.sleep(0.05)
             continue
@@ -106,7 +145,13 @@ def run_scenario(scenario_id, config, video_path, detector, args):
         end_time = time.time()
         end_to_end_latency_ms = (end_time - start_time) * 1000
         
-        prec, rec = calculate_metrics(person_count, args.gt_person)
+        # Dapatkan Ground Truth dinamis berdasarkan detik berjalannya skenario dan nama video
+        current_sec = end_time - scenario_start_time
+        video_name = os.path.basename(video_path)
+        current_gt = get_dynamic_gt(current_sec, video_name)
+        expected_status = classify_crowd(current_gt, args.capacity)["status"]
+        
+        prec, rec = calculate_metrics(person_count, current_gt)
         precisions.append(prec)
         recalls.append(rec)
         latencies.append(end_to_end_latency_ms)
@@ -130,7 +175,7 @@ def run_scenario(scenario_id, config, video_path, detector, args):
                 # Teks OSD (On-Screen Display)
                 cv2.putText(annotated_frame, f"Skenario: {scenario_id} | Res: {config['name']} | Sim FPS: {config.get('fps', 10)}", 
                             (10, 30), cv2.FONT_HERSHEY_SIMPLEX, 0.7, (255, 255, 255), 2)
-                cv2.putText(annotated_frame, f"Count: {person_count} / GT: {args.gt_person} | Prec: {prec * 100:.1f}% | Rec: {rec * 100:.1f}%", 
+                cv2.putText(annotated_frame, f"Time: {current_sec:.1f}s | Count: {person_count} / GT: {current_gt} | Prec: {prec * 100:.1f}% | Rec: {rec * 100:.1f}%", 
                             (10, 60), cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 255, 0), 2)
                 cv2.putText(annotated_frame, f"Latency E2E: {end_to_end_latency_ms:.1f} ms", 
                             (10, 90), cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 165, 255), 2)
@@ -138,11 +183,13 @@ def run_scenario(scenario_id, config, video_path, detector, args):
                             (10, 120), cv2.FONT_HERSHEY_SIMPLEX, 0.7, (255, 255, 0), 2)
                 
                 cv2.imshow("Experiment Bounding Box", annotated_frame)
-                if cv2.waitKey(1) & 0xFF == ord('q'):
-                    logger.info("Pengujian dihentikan secara manual (tombol Q ditekan).")
-                    reader.stop()
-                    cv2.destroyAllWindows()
-                    sys.exit(0)
+                
+        # Selalu panggil waitKey agar GUI Windows tidak Not Responding
+        if cv2.waitKey(1) & 0xFF == ord('q'):
+            logger.info("Pengujian dihentikan secara manual (tombol Q ditekan).")
+            reader.stop()
+            cv2.destroyAllWindows()
+            sys.exit(0)
                     
         if classification["status"] == expected_status:
             correct_classifications += 1
@@ -157,19 +204,20 @@ def run_scenario(scenario_id, config, video_path, detector, args):
         if np.random.rand() < 0.15:
             base_delay += base_delay * np.random.uniform(0.5, 1.0)
             
-        # Potong delay dengan waktu processing agar interval total sama dengan FPS
-        processing_time = end_time - start_time
-        sleep_time = max(0.01, base_delay - processing_time)
-        time.sleep(sleep_time)
+            # Potong delay dengan waktu processing agar interval total sama dengan FPS
+            processing_time = end_time - start_time
+            sleep_time = max(0.01, base_delay - processing_time)
+            time.sleep(sleep_time)
 
-    reader.stop()
+        reader.stop()
+
     cv2.destroyAllWindows()
     
     avg_precision = np.mean(precisions) * 100 if precisions else 0.0
     avg_recall = np.mean(recalls) * 100 if recalls else 0.0
     avg_latency = np.mean(latencies) if latencies else 0.0
     avg_count = np.mean(counts) if counts else 0.0
-    accuracy_rate = (correct_classifications / args.frames) * 100
+    accuracy_rate = (correct_classifications / frames_processed) * 100 if frames_processed > 0 else 0.0
     
     logger.info(f"Hasil {scenario_id}: Count={avg_count:.1f}, Prec={avg_precision:.1f}%, Rec={avg_recall:.1f}%, Acc={accuracy_rate:.1f}%")
     
@@ -177,37 +225,35 @@ def run_scenario(scenario_id, config, video_path, detector, args):
         "Scenario": scenario_id,
         "Description": f"{config['name']} ({'Mitigasi' if config['clahe'] else 'Tanpa Mitigasi'})",
         "Avg Count": avg_count,
-        "Expected Status": expected_status,
+        "Expected Status": "Dinamis",
         "Precision (%)": avg_precision,
         "Recall (%)": avg_recall,
         "Latency (ms)": avg_latency,
-        "Accuracy (%)": accuracy_rate
+        "Accuracy (%)": accuracy_rate,
+        "Condition_Metrics": cond_metrics
     }
 
 def main():
-    parser = argparse.ArgumentParser(description="Script Evaluasi Eksperimen S1-S6")
-    parser.add_argument("--video", type=str, default="sample/", help="Path ke file video footage atau direktori yang berisi video (default: folder sample/)")
-    parser.add_argument("--gt-person", type=int, default=14, help="Ground Truth jumlah orang di dalam video (default: 14)")
+    parser = argparse.ArgumentParser(description="Script Evaluasi Eksperimen S1-S6 (Dinamis - Multi Video)")
+    parser.add_argument("--video_dir", type=str, default="sample/", help="Direktori yang berisi video-video pengujian (default: folder sample/)")
     parser.add_argument("--capacity", type=int, default=15, help="Kapasitas ruangan untuk klasifikasi status (default: 15)")
-    parser.add_argument("--frames", type=int, default=50, help="Jumlah frame yang diuji per skenario (default: 50)")
     
     args = parser.parse_args()
     
-    video_path = args.video
-    if os.path.isdir(video_path):
-        import glob
-        video_files = []
-        for ext in ["*.mp4"]:
-            video_files.extend(glob.glob(os.path.join(video_path, ext)))
-        if not video_files:
-            logger.error(f"Tidak ada file video (.mp4) ditemukan di folder {video_path}!")
-            sys.exit(1)
-        video_path = video_files[0]
-        logger.info(f"Menggunakan video footage otomatis: {video_path}")
-        
-    if not os.path.exists(video_path):
-        logger.error(f"Video {video_path} tidak ditemukan!")
+    video_dir = args.video_dir
+    import glob
+    video_paths = []
+    if os.path.isdir(video_dir):
+        for ext in ["*.mp4", "*.avi", "*.mov"]:
+            video_paths.extend(glob.glob(os.path.join(video_dir, ext)))
+            
+    if not video_paths:
+        logger.error(f"Tidak ada file video yang ditemukan di folder {video_dir}!")
         sys.exit(1)
+        
+    video_paths.sort() # Urutkan agar 1.mp4 jalan duluan, lalu 2.mp4
+    video_names = [os.path.basename(vp) for vp in video_paths]
+    logger.info(f"Video terdeteksi untuk digabung: {', '.join(video_names)}")
         
     logger.info("Inisialisasi Model YOLOv8 (tunggu sebentar)...")
     detector = ObjectDetector()
@@ -223,20 +269,19 @@ def main():
     
     for s_id in scenario_keys:
         config = SCENARIOS[s_id]
-        res = run_scenario(s_id, config, video_path, detector, args)
+        res = run_scenario(s_id, config, video_paths, detector, args)
         results.append(res)
         
     # Persiapkan teks aturan keramaian
     sepi_max = int(args.capacity * SEPI_MAX_RATIO)
     sedang_max = int(args.capacity * SEDANG_MAX_RATIO)
-    target_status = classify_crowd(args.gt_person, args.capacity)['status']
     
     rules_text = (
         f"--- ATURAN KLASIFIKASI KEPADATAN (Kapasitas Maksimal: {args.capacity} orang) ---\n"
         f"- Sepi  : <= {sepi_max} orang (<= {int(SEPI_MAX_RATIO*100)}%)\n"
         f"- Sedang: {sepi_max + 1} - {sedang_max} orang ({int(SEPI_MAX_RATIO*100)+1}% - {int(SEDANG_MAX_RATIO*100)}%)\n"
         f"- Ramai : > {sedang_max} orang (> {int(SEDANG_MAX_RATIO*100)}%)\n\n"
-        f"KONDISI TARGET PENGUJIAN: {args.gt_person} orang -> Seharusnya '{target_status}'\n"
+        f"KONDISI TARGET PENGUJIAN: Dinamis (Sesuai detik berjalannya video)\n"
     )
     print("\n" + rules_text)
 
@@ -250,17 +295,74 @@ def main():
         print(f"{r['Scenario']:<10} | {r['Description']:<25} | {r['Avg Count']:<9.1f} | {r['Precision (%)']:<9.2f} | {r['Recall (%)']:<9.2f} | {r['Latency (ms)']:<15.2f} | {r['Accuracy (%)']:<9.2f}")
     print("="*105)
     
-    # Tulis hasil ke dalam file Markdown (hasil.md)
+    # Tulis hasil ke dalam file Markdown dengan nama gabungan
     hasil_path = "hasil.md"
     try:
         with open(hasil_path, "w", encoding="utf-8") as f:
-            f.write("# Laporan Hasil Evaluasi Eksperimen\n\n")
+            f.write(f"# Laporan Hasil Evaluasi Eksperimen (Gabungan Multi-Video)\n\n")
             f.write(rules_text.replace("--- ATURAN", "### Aturan").replace("---", "") + "\n")
-            f.write("Berikut adalah hasil pengujian metrik untuk semua skenario S1-S6:\n\n")
-            f.write("| Skenario | Deskripsi | Avg Count | Precision (%) | Recall (%) | Latency (ms) | Accuracy (%) |\n")
-            f.write("|----------|-----------|-----------|---------------|------------|--------------|--------------|\n")
+            
+            def write_table(group_name, items):
+                if not items:
+                    return
+                f.write(f"### {group_name}\n\n")
+                f.write("| Skenario | Kategori (Resolusi) | Avg Count | Precision (%) | Recall (%) | Latency (ms) | Accuracy (%) |\n")
+                f.write("|----------|---------------------|-----------|---------------|------------|--------------|--------------|\n")
+                
+                sum_count = sum_prec = sum_rec = sum_lat = sum_acc = 0
+                for r in items:
+                    desc = r['Description'].replace(" (Tanpa Mitigasi)", "").replace(" (Mitigasi)", "").replace(" + Mitigasi", "")
+                    f.write(f"| {r['Scenario']} | {desc} | {r['Avg Count']:.1f} | {r['Precision (%)']:.2f} | {r['Recall (%)']:.2f} | {r['Latency (ms)']:.2f} | {r['Accuracy (%)']:.2f} |\n")
+                    sum_count += r['Avg Count']
+                    sum_prec += r['Precision (%)']
+                    sum_rec += r['Recall (%)']
+                    sum_lat += r['Latency (ms)']
+                    sum_acc += r['Accuracy (%)']
+                
+                n = len(items)
+                f.write(f"| **Rata-Rata** | **Seluruh Kategori** | **{sum_count/n:.1f}** | **{sum_prec/n:.2f}** | **{sum_rec/n:.2f}** | **{sum_lat/n:.2f}** | **{sum_acc/n:.2f}** |\n\n")
+
+            s1_s4 = [r for r in results if r['Scenario'] in ["S1", "S2", "S3", "S4"]]
+            s5 = [r for r in results if r['Scenario'].startswith("S5")]
+            s6 = [r for r in results if r['Scenario'].startswith("S6")]
+            
+            write_table("Skenario 1-4 (Baseline Kondisi Cahaya & Keramaian)", s1_s4)
+            write_table("Skenario 5 (Uji Resolusi Tanpa Mitigasi Algoritma)", s5)
+            write_table("Skenario 6 (Uji Resolusi DENGAN Mitigasi Algoritma)", s6)
+            
+            # --- Agregasi dan Tulis Tabel Rata-rata Per Kondisi ---
+            f.write("### Rata-Rata Metrik Berdasarkan Kondisi Ruangan (Keseluruhan Pengujian)\n\n")
+            f.write("| Kondisi Asli (Ground Truth) | Avg Count | Precision (%) | Recall (%) | Latency (ms) | Accuracy (%) |\n")
+            f.write("|-----------------------------|-----------|---------------|------------|--------------|--------------|\n")
+            
+            overall_cond = {
+                "Sepi": {"prec": [], "rec": [], "lat": [], "cnt": [], "corr": 0, "frames": 0},
+                "Sedang": {"prec": [], "rec": [], "lat": [], "cnt": [], "corr": 0, "frames": 0},
+                "Ramai": {"prec": [], "rec": [], "lat": [], "cnt": [], "corr": 0, "frames": 0}
+            }
+            
             for r in results:
-                f.write(f"| {r['Scenario']} | {r['Description']} | {r['Avg Count']:.1f} | {r['Precision (%)']:.2f} | {r['Recall (%)']:.2f} | {r['Latency (ms)']:.2f} | {r['Accuracy (%)']:.2f} |\n")
+                cm = r["Condition_Metrics"]
+                for cond in ["Sepi", "Sedang", "Ramai"]:
+                    overall_cond[cond]["prec"].extend(cm[cond]["prec"])
+                    overall_cond[cond]["rec"].extend(cm[cond]["rec"])
+                    overall_cond[cond]["lat"].extend(cm[cond]["lat"])
+                    overall_cond[cond]["cnt"].extend(cm[cond]["cnt"])
+                    overall_cond[cond]["corr"] += cm[cond]["corr"]
+                    overall_cond[cond]["frames"] += cm[cond]["frames"]
+                    
+            for cond in ["Sepi", "Sedang", "Ramai"]:
+                c_data = overall_cond[cond]
+                if c_data["frames"] > 0:
+                    a_prec = np.mean(c_data["prec"]) * 100
+                    a_rec = np.mean(c_data["rec"]) * 100
+                    a_lat = np.mean(c_data["lat"])
+                    a_cnt = np.mean(c_data["cnt"])
+                    a_acc = (c_data["corr"] / c_data["frames"]) * 100
+                    f.write(f"| **{cond}** | {a_cnt:.1f} | {a_prec:.2f} | {a_rec:.2f} | {a_lat:.2f} | {a_acc:.2f} |\n")
+                else:
+                    f.write(f"| **{cond}** | N/A | N/A | N/A | N/A | N/A |\n")
+            
         logger.info(f"Tabel hasil pengujian berhasil disimpan di {os.path.abspath(hasil_path)}")
     except Exception as e:
         logger.error(f"Gagal menulis ke hasil.md: {e}")
