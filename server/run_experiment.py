@@ -100,116 +100,120 @@ def run_scenario(scenario_id, config, video_paths, detector, args):
         else:
             duration = 40
             
-        # Init VideoReader
-        reader = VideoReader(video_path, f"Cam_{scenario_id}")
-        reader.start(resolution=config['resolution'])
-        
-        scenario_start_time = time.time()
-        
-        # Beri waktu VideoReader untuk mendapatkan frame pertama
-        time.sleep(1.0)
-        
-        while True:
-            current_sec = time.time() - scenario_start_time
-            if current_sec >= duration:
-                break
-                
-            raw_frame = reader.get_frame()
-        if raw_frame is None:
-            time.sleep(0.05)
+        cap = cv2.VideoCapture(video_path)
+        if not cap.isOpened():
+            logger.error(f"Gagal membuka video {video_path}")
             continue
             
-        # Simulasikan kompresi dan transmisi JPEG seperti ESP32-CAM
-        ok, encoded = cv2.imencode(".jpg", raw_frame, [cv2.IMWRITE_JPEG_QUALITY, JPEG_QUALITY])
-        if not ok:
-            continue
-            
-        image_bytes = encoded.tobytes()
-        
-        # Mulai hitung latensi End-to-End
-        start_time = time.time()
-        
-        # Proses di YOLOv8
-        person_count, avg_conf, persons, annotated_bytes, yolo_latency = detector.process_frame(
-            image_bytes=image_bytes,
-            draw_overlay=True, 
-            use_clahe=config["clahe"],
-            camera_id=f"Exp_{scenario_id}",
-            use_frame_averaging=config["frame_avg"],
-            use_adaptive_confidence=config["adaptive_conf"]
-        )
-        
-        # Klasifikasi Kepadatan
-        classification = classify_crowd(person_count, args.capacity)
-        
-        end_time = time.time()
-        end_to_end_latency_ms = (end_time - start_time) * 1000
-        
-        # Dapatkan Ground Truth dinamis berdasarkan detik berjalannya skenario dan nama video
-        current_sec = end_time - scenario_start_time
-        video_name = os.path.basename(video_path)
-        current_gt = get_dynamic_gt(current_sec, video_name)
-        expected_status = classify_crowd(current_gt, args.capacity)["status"]
-        
-        prec, rec = calculate_metrics(person_count, current_gt)
-        precisions.append(prec)
-        recalls.append(rec)
-        latencies.append(end_to_end_latency_ms)
-        counts.append(person_count)
-        
-        # Tampilkan Window Bounding Box beserta OSD Metrik Real-Time
-        if annotated_bytes:
-            nparr = np.frombuffer(annotated_bytes, np.uint8)
-            annotated_frame = cv2.imdecode(nparr, cv2.IMREAD_COLOR)
-            if annotated_frame is not None:
-                # Gambar Bounding Box dari data persons
-                for p in persons:
-                    x1, y1, x2, y2 = p["bbox"]
-                    conf = p["confidence"]
-                    # Gambar kotak hijau
-                    cv2.rectangle(annotated_frame, (x1, y1), (x2, y2), (0, 255, 0), 2)
-                    # Label confidence
-                    label = f"Person {conf:.2f}"
-                    cv2.putText(annotated_frame, label, (x1, max(y1 - 5, 10)), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 255, 0), 1)
-
-                # Teks OSD (On-Screen Display)
-                cv2.putText(annotated_frame, f"Skenario: {scenario_id} | Res: {config['name']} | Sim FPS: {config.get('fps', 10)}", 
-                            (10, 30), cv2.FONT_HERSHEY_SIMPLEX, 0.7, (255, 255, 255), 2)
-                cv2.putText(annotated_frame, f"Time: {current_sec:.1f}s | Count: {person_count} / GT: {current_gt} | Prec: {prec * 100:.1f}% | Rec: {rec * 100:.1f}%", 
-                            (10, 60), cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 255, 0), 2)
-                cv2.putText(annotated_frame, f"Latency E2E: {end_to_end_latency_ms:.1f} ms", 
-                            (10, 90), cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 165, 255), 2)
-                cv2.putText(annotated_frame, f"Status: {classification['status']} (Target: {expected_status})", 
-                            (10, 120), cv2.FONT_HERSHEY_SIMPLEX, 0.7, (255, 255, 0), 2)
-                
-                cv2.imshow("Experiment Bounding Box", annotated_frame)
-                
-        # Selalu panggil waitKey agar GUI Windows tidak Not Responding
-        if cv2.waitKey(1) & 0xFF == ord('q'):
-            logger.info("Pengujian dihentikan secara manual (tombol Q ditekan).")
-            reader.stop()
-            cv2.destroyAllWindows()
-            sys.exit(0)
-                    
-        if classification["status"] == expected_status:
-            correct_classifications += 1
-            
-        frames_processed += 1
-        
-        # Simulasi FPS realistis ESP32-CAM dengan Jitter (kadang drop)
+        # Simulasi FPS
         target_fps = config.get("fps", 10)
-        base_delay = 1.0 / target_fps
+        interval_sec = 1.0 / target_fps
         
-        # 15% kemungkinan frame drop (delay bertambah 50-100% lebih lama)
-        if np.random.rand() < 0.15:
-            base_delay += base_delay * np.random.uniform(0.5, 1.0)
+        current_simulated_time = 0.0
+        
+        while current_simulated_time < duration:
+            # PENTING: Pompa event GUI di baris PERTAMA loop agar tidak pernah macet
+            if cv2.waitKey(1) & 0xFF == ord('q'):
+                logger.info("Pengujian dihentikan secara manual (tombol Q ditekan).")
+                cap.release()
+                cv2.destroyAllWindows()
+                sys.exit(0)
+                
+            # Langsung loncat ke detik yang dituju di video
+            cap.set(cv2.CAP_PROP_POS_MSEC, current_simulated_time * 1000)
+            ret, raw_frame = cap.read()
             
-            # Potong delay dengan waktu processing agar interval total sama dengan FPS
-            processing_time = end_time - start_time
-            sleep_time = max(0.01, base_delay - processing_time)
-            time.sleep(sleep_time)
+            if not ret:
+                break # Video habis
+                
+            # Resize sesuai resolusi skenario
+            w, h = config['resolution']
+            raw_frame = cv2.resize(raw_frame, (w, h))
+            
 
-        reader.stop()
+            # Simulasikan kompresi dan transmisi JPEG seperti ESP32-CAM
+            ok, encoded = cv2.imencode(".jpg", raw_frame, [cv2.IMWRITE_JPEG_QUALITY, JPEG_QUALITY])
+            if not ok:
+                current_simulated_time += interval_sec
+                continue
+                
+            image_bytes = encoded.tobytes()
+            
+            # Mulai hitung latensi End-to-End
+            start_time = time.time()
+            
+            # Proses di YOLOv8
+            person_count, avg_conf, persons, annotated_bytes, yolo_latency = detector.process_frame(
+                image_bytes=image_bytes,
+                draw_overlay=True, 
+                use_clahe=config["clahe"],
+                camera_id=f"Exp_{scenario_id}",
+                use_frame_averaging=config["frame_avg"],
+                use_adaptive_confidence=config["adaptive_conf"]
+            )
+            
+            # Klasifikasi Kepadatan
+            classification = classify_crowd(person_count, args.capacity)
+            
+            end_time = time.time()
+            end_to_end_latency_ms = (end_time - start_time) * 1000
+            
+            # Dapatkan Ground Truth dinamis berdasarkan detik simulasi
+            current_gt = get_dynamic_gt(current_simulated_time, video_name)
+            expected_status = classify_crowd(current_gt, args.capacity)["status"]
+            
+            prec, rec = calculate_metrics(person_count, current_gt)
+            precisions.append(prec)
+            recalls.append(rec)
+            latencies.append(end_to_end_latency_ms)
+            counts.append(person_count)
+            
+            # Catat ke tracker per kondisi
+            c_m = cond_metrics[expected_status]
+            c_m["prec"].append(prec)
+            c_m["rec"].append(rec)
+            c_m["lat"].append(end_to_end_latency_ms)
+            c_m["cnt"].append(person_count)
+            c_m["frames"] += 1
+            is_correct = (classification["status"] == expected_status)
+            if is_correct:
+                c_m["corr"] += 1
+                correct_classifications += 1
+                
+            frames_processed += 1
+            
+            # Tampilkan Window Bounding Box beserta OSD Metrik Real-Time
+            if annotated_bytes:
+                nparr = np.frombuffer(annotated_bytes, np.uint8)
+                annotated_frame = cv2.imdecode(nparr, cv2.IMREAD_COLOR)
+                if annotated_frame is not None:
+                    # Gambar Bounding Box dari data persons
+                    for p in persons:
+                        x1, y1, x2, y2 = p["bbox"]
+                        conf = p["confidence"]
+                        # Gambar kotak hijau
+                        cv2.rectangle(annotated_frame, (x1, y1), (x2, y2), (0, 255, 0), 2)
+                        # Label confidence
+                        label = f"Person {conf:.2f}"
+                        cv2.putText(annotated_frame, label, (x1, max(y1 - 5, 10)), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 255, 0), 1)
+
+                    # Teks OSD (On-Screen Display)
+                    cv2.putText(annotated_frame, f"Skenario: {scenario_id} | Res: {config['name']} | Target FPS: {target_fps}", 
+                                (10, 30), cv2.FONT_HERSHEY_SIMPLEX, 0.7, (255, 255, 255), 2)
+                    cv2.putText(annotated_frame, f"Sim Time: {current_simulated_time:.1f}s | Count: {person_count} / GT: {current_gt} | Prec: {prec * 100:.1f}% | Rec: {rec * 100:.1f}%", 
+                                (10, 60), cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 255, 0), 2)
+                    cv2.putText(annotated_frame, f"Latency E2E: {end_to_end_latency_ms:.1f} ms", 
+                                (10, 90), cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 165, 255), 2)
+                    cv2.putText(annotated_frame, f"Status: {classification['status']} (Target: {expected_status})", 
+                                (10, 120), cv2.FONT_HERSHEY_SIMPLEX, 0.7, (255, 255, 0), 2)
+                    
+                    cv2.imshow("Experiment Bounding Box", annotated_frame)
+                    cv2.waitKey(1)
+                    
+            # Tambahkan waktu simulasi
+            current_simulated_time += interval_sec
+
+        cap.release()
 
     cv2.destroyAllWindows()
     
@@ -257,6 +261,12 @@ def main():
         
     logger.info("Inisialisasi Model YOLOv8 (tunggu sebentar)...")
     detector = ObjectDetector()
+    
+    logger.info("Melakukan pemanasan AI (Warmup) agar Windows tidak hang...")
+    dummy_frame = np.zeros((480, 640, 3), dtype=np.uint8)
+    _, encoded = cv2.imencode(".jpg", dummy_frame)
+    detector.process_frame(image_bytes=encoded.tobytes())
+    logger.info("Pemanasan selesai! Memulai simulasi.")
     
     results = []
     
