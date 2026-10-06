@@ -259,7 +259,7 @@ Examples:
     
     # Default ke folder sample
     base_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-    default_dir = os.path.join(base_dir, "sample")
+    default_dir = os.path.join(base_dir, "server/sample")
     
     parser.add_argument("--url",  type=str, default="auto",       help="WebSocket URL or 'auto'")
     parser.add_argument("--dir",  type=str, default=default_dir,  help="Directory containing video samples")

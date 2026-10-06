@@ -96,7 +96,7 @@ async def broadcast_to_dashboards(data_payload: dict):
 async def handle_esp32_client(websocket, esp32_id):
     """Handles incoming JPEG frames from ESP32-CAM over WebSocket."""
     global active_rooms_cache
-    logger.info(f"ESP32-CAM (Hardware ID: {esp32_id}) connected to server.")
+    logger.info(f"ESP32-CAM (Hardware ID: {esp32_id}) connected to server.") 
     frame_counter = 0
     last_person_time = time.time()
     last_frame_time = time.time()

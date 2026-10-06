@@ -72,7 +72,7 @@ def calculate_metrics(detected, ground_truth):
     precision = tp / (tp + fp) if (tp + fp) > 0 else 0.0
     recall = tp / (tp + fn) if (tp + fn) > 0 else 0.0
     
-    return precision, recall
+    return tp, fp, fn, precision, recall
 
 def run_scenario(scenario_id, config, video_paths, detector, args):
     logger.info(f"--- Memulai {scenario_id}: Resolusi {config['name']} {config['resolution']} ---")
@@ -162,11 +162,31 @@ def run_scenario(scenario_id, config, video_paths, detector, args):
             current_gt = get_dynamic_gt(current_simulated_time, video_name)
             expected_status = classify_crowd(current_gt, args.capacity)["status"]
             
-            prec, rec = calculate_metrics(person_count, current_gt)
+            tp, fp, fn, prec, rec = calculate_metrics(person_count, current_gt)
             precisions.append(prec)
             recalls.append(rec)
             latencies.append(end_to_end_latency_ms)
             counts.append(person_count)
+            
+            is_correct = (classification["status"] == expected_status)
+            
+            # Record raw logs
+            if "raw_logs" not in locals(): raw_logs = []
+            raw_logs.append({
+                "Video": video_name,
+                "Detik": f"{current_simulated_time:.2f}",
+                "Aktual": current_gt,
+                "Terdeteksi": person_count,
+                "TP": tp,
+                "FP": fp,
+                "FN": fn,
+                "Precision": f"{prec * 100:.2f}%",
+                "Recall": f"{rec * 100:.2f}%",
+                "Status Aktual": expected_status,
+                "Status Sistem": classification["status"],
+                "Klasifikasi": "Benar" if is_correct else "Salah",
+                "Latency (ms)": f"{end_to_end_latency_ms:.2f}"
+            })
             
             # Catat ke tracker per kondisi
             c_m = cond_metrics[expected_status]
@@ -175,7 +195,6 @@ def run_scenario(scenario_id, config, video_paths, detector, args):
             c_m["lat"].append(end_to_end_latency_ms)
             c_m["cnt"].append(person_count)
             c_m["frames"] += 1
-            is_correct = (classification["status"] == expected_status)
             if is_correct:
                 c_m["corr"] += 1
                 correct_classifications += 1
@@ -220,10 +239,10 @@ def run_scenario(scenario_id, config, video_paths, detector, args):
     avg_precision = np.mean(precisions) * 100 if precisions else 0.0
     avg_recall = np.mean(recalls) * 100 if recalls else 0.0
     avg_latency = np.mean(latencies) if latencies else 0.0
-    avg_count = np.mean(counts) if counts else 0.0
+    avg_count = int(round(np.mean(counts))) if counts else 0
     accuracy_rate = (correct_classifications / frames_processed) * 100 if frames_processed > 0 else 0.0
     
-    logger.info(f"Hasil {scenario_id}: Count={avg_count:.1f}, Prec={avg_precision:.1f}%, Rec={avg_recall:.1f}%, Acc={accuracy_rate:.1f}%")
+    logger.info(f"Hasil {scenario_id}: Count={avg_count}, Prec={avg_precision:.1f}%, Rec={avg_recall:.1f}%, Acc={accuracy_rate:.1f}%")
     
     return {
         "Scenario": scenario_id,
@@ -234,8 +253,11 @@ def run_scenario(scenario_id, config, video_paths, detector, args):
         "Recall (%)": avg_recall,
         "Latency (ms)": avg_latency,
         "Accuracy (%)": accuracy_rate,
-        "Condition_Metrics": cond_metrics
+        "Condition_Metrics": cond_metrics,
+        "Raw_Logs": raw_logs if "raw_logs" in locals() else []
     }
+
+import csv
 
 def main():
     parser = argparse.ArgumentParser(description="Script Evaluasi Eksperimen S1-S6 (Dinamis - Multi Video)")
@@ -302,15 +324,38 @@ def main():
     print(f"{'Skenario':<10} | {'Deskripsi':<25} | {'Avg Count':<9} | {'Prec (%)':<9} | {'Rec (%)':<9} | {'Latency (ms)':<15} | {'Acc (%)':<9}")
     print("-" * 105)
     for r in results:
-        print(f"{r['Scenario']:<10} | {r['Description']:<25} | {r['Avg Count']:<9.1f} | {r['Precision (%)']:<9.2f} | {r['Recall (%)']:<9.2f} | {r['Latency (ms)']:<15.2f} | {r['Accuracy (%)']:<9.2f}")
+        print(f"{r['Scenario']:<10} | {r['Description']:<25} | {r['Avg Count']:<9} | {r['Precision (%)']:<9.2f} | {r['Recall (%)']:<9.2f} | {r['Latency (ms)']:<15.2f} | {r['Accuracy (%)']:<9.2f}")
     print("="*105)
     
-    # Tulis hasil ke dalam file Markdown dengan nama gabungan
     hasil_path = "hasil.md"
+    csv_path = "data_mentah.csv"
     try:
+        # Menulis Data Mentah ke CSV
+        with open(csv_path, "w", newline="", encoding="utf-8") as f_csv:
+            writer = csv.writer(f_csv)
+            writer.writerow(["Skenario", "Video", "Detik", "Aktual", "Terdeteksi", "TP", "FP", "FN", "Precision", "Recall", "Status Aktual", "Status Sistem", "Klasifikasi", "Latency (ms)"])
+            for r in results:
+                for row in r["Raw_Logs"]:
+                    writer.writerow([r["Scenario"], row["Video"], row["Detik"], row["Aktual"], row["Terdeteksi"], row["TP"], row["FP"], row["FN"], row["Precision"], row["Recall"], row["Status Aktual"], row["Status Sistem"], row["Klasifikasi"], row["Latency (ms)"]])
+        logger.info(f"Data mentah pengujian berhasil disimpan di {os.path.abspath(csv_path)}")
+        
         with open(hasil_path, "w", encoding="utf-8") as f:
             f.write(f"# Laporan Hasil Evaluasi Eksperimen (Gabungan Multi-Video)\n\n")
+            f.write("Laporan ini berisi hasil evaluasi deteksi keramaian menggunakan YOLOv8.\n\n")
+            f.write("## 1. Metodologi Perhitungan Metrik\n\n")
+            f.write("Karena perhitungan ini didasarkan pada **jumlah objek (count)** dan bukan pencocokan bounding box secara spasial (karena absennya anotasi ground truth spesifik per frame), nilai dievaluasi dengan pendekatan aproksimasi sebagai berikut:\n\n")
+            f.write("- **True Positive (TP)**: Jumlah deteksi yang benar. Dihitung menggunakan `min(Detected, Aktual)`.\n")
+            f.write("- **False Positive (FP)**: Kelebihan deteksi. Dihitung menggunakan `max(0, Detected - Aktual)`.\n")
+            f.write("- **False Negative (FN)**: Orang yang gagal dideteksi. Dihitung menggunakan `max(0, Aktual - Detected)`.\n\n")
+            f.write("**Rumus Precision:**\n")
+            f.write("$$\\text{Precision} = \\frac{TP}{TP + FP} \\times 100\\%$$\n\n")
+            f.write("**Rumus Recall:**\n")
+            f.write("$$\\text{Recall} = \\frac{TP}{TP + FN} \\times 100\\%$$\n\n")
+            f.write("**Rumus Accuracy (Klasifikasi Keramaian):**\n")
+            f.write("$$\\text{Accuracy} = \\frac{\\text{Jumlah Frame dengan Status Benar}}{\\text{Total Frame}} \\times 100\\%$$\n\n")
+            f.write("---\n\n")
             f.write(rules_text.replace("--- ATURAN", "### Aturan").replace("---", "") + "\n")
+            f.write("Data mentah untuk setiap skenario (TP, FP, FN per detik) dilampirkan dalam file terpisah: **`data_mentah.csv`**.\n\n")
             
             def write_table(group_name, items):
                 if not items:
@@ -322,7 +367,7 @@ def main():
                 sum_count = sum_prec = sum_rec = sum_lat = sum_acc = 0
                 for r in items:
                     desc = r['Description'].replace(" (Tanpa Mitigasi)", "").replace(" (Mitigasi)", "").replace(" + Mitigasi", "")
-                    f.write(f"| {r['Scenario']} | {desc} | {r['Avg Count']:.1f} | {r['Precision (%)']:.2f} | {r['Recall (%)']:.2f} | {r['Latency (ms)']:.2f} | {r['Accuracy (%)']:.2f} |\n")
+                    f.write(f"| {r['Scenario']} | {desc} | {r['Avg Count']} | {r['Precision (%)']:.2f} | {r['Recall (%)']:.2f} | {r['Latency (ms)']:.2f} | {r['Accuracy (%)']:.2f} |\n")
                     sum_count += r['Avg Count']
                     sum_prec += r['Precision (%)']
                     sum_rec += r['Recall (%)']
@@ -330,7 +375,7 @@ def main():
                     sum_acc += r['Accuracy (%)']
                 
                 n = len(items)
-                f.write(f"| **Rata-Rata** | **Seluruh Kategori** | **{sum_count/n:.1f}** | **{sum_prec/n:.2f}** | **{sum_rec/n:.2f}** | **{sum_lat/n:.2f}** | **{sum_acc/n:.2f}** |\n\n")
+                f.write(f"| **Rata-Rata** | **Seluruh Kategori** | **{int(round(sum_count/n))}** | **{sum_prec/n:.2f}** | **{sum_rec/n:.2f}** | **{sum_lat/n:.2f}** | **{sum_acc/n:.2f}** |\n\n")
 
             s1_s4 = [r for r in results if r['Scenario'] in ["S1", "S2", "S3", "S4"]]
             s5 = [r for r in results if r['Scenario'].startswith("S5")]
@@ -367,11 +412,18 @@ def main():
                     a_prec = np.mean(c_data["prec"]) * 100
                     a_rec = np.mean(c_data["rec"]) * 100
                     a_lat = np.mean(c_data["lat"])
-                    a_cnt = np.mean(c_data["cnt"])
+                    a_cnt = int(round(np.mean(c_data["cnt"])))
                     a_acc = (c_data["corr"] / c_data["frames"]) * 100
-                    f.write(f"| **{cond}** | {a_cnt:.1f} | {a_prec:.2f} | {a_rec:.2f} | {a_lat:.2f} | {a_acc:.2f} |\n")
+                    f.write(f"| **{cond}** | {a_cnt} | {a_prec:.2f} | {a_rec:.2f} | {a_lat:.2f} | {a_acc:.2f} |\n")
                 else:
                     f.write(f"| **{cond}** | N/A | N/A | N/A | N/A | N/A |\n")
+            
+            f.write("\n## 2. Analisis Hasil\n")
+            f.write("Berdasarkan hasil di atas, Accuracy untuk klasifikasi kepadatan (terutama pada kondisi Sedang dan Ramai) seringkali rendah. "
+                    "Hal ini disebabkan oleh model YOLOv8 yang gagal mendeteksi jumlah orang secara penuh (False Negative yang tinggi) "
+                    "karena jarak objek yang jauh, resolusi yang dikompres, atau oklusi, sehingga Avg Count yang dihasilkan sistem "
+                    "jauh lebih rendah dari jumlah Aktual. Akibatnya, sistem sering mengklasifikasikan ruangan sebagai 'Sepi' "
+                    "padahal jumlah aktualnya masuk ke kategori 'Sedang' atau 'Ramai'.\n")
             
         logger.info(f"Tabel hasil pengujian berhasil disimpan di {os.path.abspath(hasil_path)}")
     except Exception as e:
